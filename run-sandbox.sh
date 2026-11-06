@@ -39,13 +39,18 @@ if ! command -v code > /dev/null; then
     exit 1
 fi
 
+# --new-window: without it the CLI hands the URI to an already-running VS Code,
+# and that handoff crashes with SIGTRAP when another window is open. A separate
+# window is wanted here anyway — the sandbox session should not displace
+# whatever else you have open.
+#
 # bootstrap-ruhnu.sh writes the workspace file. Without it there is nothing
 # multi-root to open, and opening the missing path gives an empty window.
 if ssh "$NAME.sbx" "test -f $WS" 2> /dev/null; then
     echo "== opening $WS"
-    code --file-uri "vscode-remote://ssh-remote+$NAME.sbx$WS"
+    code --new-window --file-uri "vscode-remote://ssh-remote+$NAME.sbx$WS"
 else
-    echo "note: $WS missing; run bootstrap-ruhnu.sh in the sandbox" >&2
+    echo "note: $WS missing; run in-sandbox/bootstrap-ruhnu.sh in the sandbox" >&2
     echo "== opening /home/agent/workspace instead"
-    code --folder-uri "vscode-remote://ssh-remote+$NAME.sbx/home/agent/workspace"
+    code --new-window --folder-uri "vscode-remote://ssh-remote+$NAME.sbx/home/agent/workspace"
 fi
