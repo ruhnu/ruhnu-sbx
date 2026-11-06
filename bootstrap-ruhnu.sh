@@ -33,6 +33,9 @@ REPOS=(
     cdoc2-java-ref-impl:develop
     cdoc2-shares-server:develop
     .github:main
+    # This repo, so Claude can fix the kit and the scripts from inside the
+    # sandbox they configure. Skipped with a warning until it is pushed.
+    ruhnu-sbx:main
 )
 
 # Only the code repos get OpenSpec wiring; .github holds the org profile page
@@ -48,7 +51,10 @@ for entry in "${REPOS[@]}"; do
         continue
     fi
     echo "== cloning $r ($branch)"
-    git clone --branch "$branch" "https://github.com/ruhnu/$r" "$SRC/$r"
+    # Warn rather than abort: a repo may not be pushed yet, and the rest of
+    # the bootstrap is still worth running.
+    git clone --branch "$branch" "https://github.com/ruhnu/$r" "$SRC/$r" \
+        || echo "   WARNING: could not clone $r; skipping"
 done
 
 # The store's initial commit needs a git identity, and a fresh sandbox has
