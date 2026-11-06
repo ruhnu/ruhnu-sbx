@@ -39,6 +39,21 @@ if ! command -v code > /dev/null; then
     exit 1
 fi
 
+# Without a display, `code` prints "Missing X server or $DISPLAY" and exits,
+# which is easy to read as it having done nothing. Say so, and hand over the
+# command to run from a graphical session.
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    cat >&2 <<EOF
+error: no DISPLAY or WAYLAND_DISPLAY; this shell has no graphical session.
+       The sandbox is started. Run this from the desktop:
+
+  code --new-window --file-uri "vscode-remote://ssh-remote+$NAME.sbx$WS"
+
+       Or use --no-vscode for a shell.
+EOF
+    exit 1
+fi
+
 # Run `code` detached from any VS Code that may have spawned this shell.
 #
 # In a VS Code integrated terminal, VSCODE_IPC_HOOK_CLI points at that
