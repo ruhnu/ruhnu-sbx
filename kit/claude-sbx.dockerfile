@@ -50,6 +50,22 @@ RUN curl -fsSL https://openspec.dev/cli/install.sh | sh
 
 ENV PATH="/home/agent/.local/bin:${PATH}"
 
+# Claude Code VS Code extension, pre-installed so a Remote-SSH session has it
+# without a marketplace round trip on first connect.
+#
+# The tarball is only the headless installer and is dropped in the same layer.
+# extensions.json records absolute paths, so the extension has to be installed
+# at its final location rather than copied there afterwards. Nothing is mounted
+# over ~/.vscode-server in a mountless sandbox, so unlike the claude-sandbox
+# image this needs no seed copy or restore-on-start logic.
+RUN curl -fsSL -o /tmp/vscode-server.tar.gz \
+      "https://update.code.visualstudio.com/latest/server-linux-x64/stable" \
+ && mkdir -p /tmp/vscode-server /home/agent/.vscode-server/extensions \
+ && tar xzf /tmp/vscode-server.tar.gz -C /tmp/vscode-server --strip-components=1 \
+ && /tmp/vscode-server/bin/code-server --install-extension anthropic.claude-code \
+      --extensions-dir /home/agent/.vscode-server/extensions \
+ && rm -rf /tmp/vscode-server /tmp/vscode-server.tar.gz
+
 # Keep OpenSpec off the network at runtime: no update check, no telemetry.
 # Without these it reaches for openspec.dev / edge.openspec.dev, which the
 # egress policy denies anyway, producing slow commands and confusing errors.

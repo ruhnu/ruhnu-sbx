@@ -273,10 +273,18 @@ in `~/.m2`, where the rest of the reactor finds them.
 
 ```bash
 ssh ruhnu.sbx
-cd ~/workspace/cdoc2-openapi    && ./mvnw clean install
-cd ~/workspace/cdoc2-auth       && ./mvnw clean install
+cd ~/workspace/cdoc2-openapi       && mvn clean install
+cd ~/workspace/cdoc2-auth          && mvn clean install
 cd ~/workspace/cdoc2-java-ref-impl && ./mvnw clean install
 ```
+
+Note `mvn` for the first two: only `cdoc2-java-ref-impl` ships a Maven
+wrapper. The kit installs Maven 3.9.12 for exactly this.
+
+`cdoc2-openapi`'s own pom is version 3.1.0, which looks wrong but is not: each
+`*-openapi.yaml` is published as its own artifact, versioned from the `info.version`
+inside it. `cdoc2-key-capsules-openapi.yaml` carries 3.1.2, which is what
+`cdoc2-client` asks for.
 
 Skipping this gives:
 
@@ -313,6 +321,19 @@ code --folder-uri "vscode-remote://ssh-remote+ruhnu.sbx/home/agent/workspace/cdo
 Needs the Remote-SSH extension on the host; the first connect installs the VS
 Code server inside the sandbox. The editor runs in the sandbox, so it reads
 VM-local files — which is why nothing needs mounting from the host.
+
+The **Claude Code extension is baked into the kit**, so it is present in the
+sandbox from the first connect rather than being fetched from the marketplace.
+Two extensions are involved and the sides matter:
+
+| Install on | Extension | |
+|---|---|---|
+| host | `ms-vscode-remote.remote-ssh` | makes the connection |
+| sandbox | `anthropic.claude-code` | already in the image |
+
+A `claude` started from the integrated terminal runs inside the sandbox, under
+the same egress policy and with the same placeholder credentials as everything
+else.
 
 The workspace file lives inside the sandbox, at
 `~/workspace/ruhnu.code-workspace`, because that is where the VS Code server

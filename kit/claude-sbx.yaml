@@ -59,6 +59,14 @@ capabilities:
           - github.com
           - objects.githubusercontent.com
           - deb.debian.org
+          # VS Code server tarball and the Claude Code extension. The
+          # marketplace redirects downloads to a CDN; if the build fails here,
+          # the error names the host that was denied — add it.
+          - update.code.visualstudio.com
+          - marketplace.visualstudio.com
+          - vscode.download.prss.microsoft.com
+          - "*.vsassets.io"
+          - "*.gallerycdn.vsassets.io"
       # The agent's steady state. Measured under the Balanced preset,
       # everything here except openspec.dev was already reachable; listed
       # explicitly so the kit also works under Locked Down.
