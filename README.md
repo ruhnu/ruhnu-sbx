@@ -159,12 +159,28 @@ also works under the Locked Down preset.
 
 ```bash
 docker buildx build -f kit/claude-sbx.yaml -t claude-sbx:dev kit/
-sbx create --name ruhnu ./kit/
+
+mkdir -p ~/.m2/repository
+sbx create --name ruhnu ./kit/ \
+  ~/workspace/ruhnu-sbx \
+  ~/.m2/repository:/home/agent/.m2/repository
 ```
 
-No workspace path, so the sandbox is mountless and everything lives on the VM's
-own ext4 — native build speed. A host directory would reach the VM only over
-virtiofs, which is markedly slower for Maven's many small reads.
+The cloned repos stay on the VM's own ext4 — native build speed. Two things are
+mounted from the host, deliberately:
+
+**`~/.m2/repository`**, so the dependency cache survives `sbx rm`. That is 293
+MB of re-download every time the kit changes. Mounting it was measured at no
+cost for this project (15s VM-local vs 15s mounted, warm offline build); see
+`docs/findings.md`. Mount the `repository` subdirectory, not `~/.m2` — the kit
+bakes `settings.xml` into `~/.m2/` and mounting the parent would hide it.
+
+**This repo**, so its scripts and docs are available inside and editable from
+either side. Drop it if you would rather the agent could not write to your host
+checkout.
+
+The first positional path is the *primary* workspace and must mount at its host
+path; `HOST:TARGET` is only accepted for the ones after it.
 
 The sandbox is capped at 8 CPU / 8 GiB by `resources@1`; a stock sandbox
 otherwise takes the whole machine. Override per sandbox with `--cpus` /

@@ -176,6 +176,48 @@ and the spec documents more than this build supports.
 Mark anything uncertain `optional: true` so kit resolution degrades instead of
 failing.
 
+## Measured: mounting ~/.m2 over virtiofs costs nothing here
+
+A mounted host directory reaches the VM only over virtiofs — a microVM has its
+own kernel and cannot touch the host filesystem directly. On an earlier
+Multipass setup a virtiofs mount measured ~90x slower than ext4 for a pnpm
+install on a large monorepo, so the assumption going in was that mounting the
+Maven cache would be costly.
+
+It is not, for this workload. Same warm 293 MB cache, same repos VM-local,
+`./mvnw -o -q clean install -DskipTests` on cdoc2-java-ref-impl:
+
+| `~/.m2/repository` | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| VM-local (overlay) | 15s | 15s | 14s |
+| mounted from host (virtiofs) | 17s | 15s | 15s |
+
+The 2s on the first mounted run is cold page cache; it disappears afterwards.
+
+Why the difference from the pnpm case: a warm Maven cache is read-mostly and
+made of jar-sized files rather than a deep tree of tiny ones and symlinks;
+virtiofs caching is on by default in sbx; and this build is CPU-bound anyway —
+about 37s of user time against 15s wall on 8 cores. A *cold* resolve, which
+writes thousands of small metadata files, was not measured and may behave
+differently.
+
+So mount the cache. It survives `sbx rm`, which otherwise costs a 293 MB
+re-download every time the kit changes:
+
+```bash
+sbx create --name ruhnu ./kit/ \
+  ~/workspace/ruhnu-sbx \
+  ~/.m2/repository:/home/agent/.m2/repository
+```
+
+Two constraints found while doing this:
+
+- The **first** positional path is the primary workspace and must mount at its
+  host path. `HOST:TARGET` is rejected for it ("primary workspace is mounted at
+  its host path"), so a target-less primary has to come first.
+- Mount `~/.m2/repository`, not `~/.m2`: the kit bakes `settings.xml` into
+  `~/.m2/` and mounting the parent would hide it.
+
 ## Base image
 
 There is no `docker/sandbox-templates:claude`. Tags are
