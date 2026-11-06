@@ -289,6 +289,20 @@ the sandbox discards these locally built artifacts along with everything else.
 
 ## 6. VS Code
 
+All repos plus the OpenSpec store in one window — `bootstrap-ruhnu.sh` writes
+the multi-root workspace file, so this just opens it:
+
+```bash
+code --file-uri "vscode-remote://ssh-remote+ruhnu.sbx/home/agent/workspace/ruhnu.code-workspace"
+```
+
+Note **`--file-uri`**, not `--folder-uri`: a `.code-workspace` is a file.
+Pointing `--folder-uri` at a single repo opens only that repo, and pointing it
+at `~/workspace` opens one root containing everything, which works but gives
+the Java tooling a worse view of the projects.
+
+A single repo, when that is what you want:
+
 ```bash
 code --folder-uri "vscode-remote://ssh-remote+ruhnu.sbx/home/agent/workspace/cdoc2-java-ref-impl"
 ```
@@ -297,8 +311,15 @@ Needs the Remote-SSH extension on the host; the first connect installs the VS
 Code server inside the sandbox. The editor runs in the sandbox, so it reads
 VM-local files — which is why nothing needs mounting from the host.
 
-For all four repos plus the specs in one window, write a `.code-workspace`
-inside the sandbox listing them and open that with `--file-uri` instead.
+The workspace file lives inside the sandbox, at
+`~/workspace/ruhnu.code-workspace`, because that is where the VS Code server
+reads it from. `bootstrap-ruhnu.sh` regenerates it on every run, so edits made
+to it in VS Code — added folders, workspace settings — are overwritten. Add a
+folder to `REPOS` in the script instead.
+
+A `claude` started from the integrated terminal picks up the workspace's
+folders as its working directories, so all the repos are in scope without
+passing `--add-dir`.
 
 ## 7. Lifecycle
 

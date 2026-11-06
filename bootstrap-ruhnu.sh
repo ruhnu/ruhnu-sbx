@@ -88,12 +88,30 @@ for r in "${OPENSPEC_REPOS[@]}"; do
     printf 'schema: spec-driven\nstore: %s\n' "$STORE_ID" > openspec/config.yaml
 done
 
-cd "$SRC/${REPOS[0]}"
+# A multi-root workspace over every repo plus the store, so one VS Code window
+# covers the lot. It lives inside the sandbox because that is where the VS Code
+# server reads it from; opening it needs --file-uri, not --folder-uri.
+WS_FILE="$SRC/ruhnu.code-workspace"
+echo "== writing $WS_FILE"
+{
+    printf '{\n    "folders": [\n'
+    sep=""
+    for entry in "${REPOS[@]}"; do
+        r="${entry%%:*}"
+        printf '%s        { "path": "%s" }' "$sep" "$r"
+        sep=$',\n'
+    done
+    printf '%s        { "path": "%s" }\n' "$sep" "$STORE_DIR"
+    printf '    ],\n    "settings": {}\n}\n'
+} > "$WS_FILE"
+
+cd "$SRC/${OPENSPEC_REPOS[0]}"
 echo
 openspec doctor
 echo
 echo "Clones:   $SRC"
 echo "Store:    $STORE_PATH"
+echo "VS Code:  code --file-uri \"vscode-remote://ssh-remote+ruhnu.sbx$WS_FILE\""
 echo "Build order: cdoc2-openapi and cdoc2-auth are consumed as artifacts by"
 echo "cdoc2-java-ref-impl, so 'mvn install' those two first when building the"
 echo "forks rather than consuming upstream releases."
