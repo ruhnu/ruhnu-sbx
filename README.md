@@ -253,6 +253,27 @@ you. Check with `touch` before relying on it.
 Mounted workspaces are *not* captured by `sbx template save`, and they survive
 `sbx rm` — they are on the host.
 
+### Your CLAUDE.md
+
+```bash
+ssh ruhnu.sbx 'mkdir -p ~/.claude'
+scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
+```
+
+Copied rather than mounted: sbx mounts directories, not single files.
+
+**`~/.claude` is deliberately not mounted.** It holds `.credentials.json` (a
+live OAuth token), `.claude.json` (every project you have opened, plus MCP
+config that often carries tokens) and `projects/` — full session transcripts
+for every repo you have ever worked in. Mounting it read-write would hand all
+of that to an agent running in auto mode, and would undo the credential
+isolation the rest of this setup is built on.
+
+Authentication does not need it: run `/login` inside the sandbox and the
+session token stays on the host.
+
+Re-copy after `sbx rm`; it survives `sbx stop`/`start`.
+
 ### Getting a shell
 
 ```bash
