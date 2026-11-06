@@ -2,8 +2,10 @@
 # Clone the ruhnu cdoc2 forks into a sandbox and wire them to a shared OpenSpec
 # store. Run INSIDE the sandbox:
 #
-#   scp sbx/bootstrap-ruhnu.sh ruhnu.sbx:/tmp/
-#   ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
+#   ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
+#
+# or, before this repo is mounted or cloned in:
+#   scp in-sandbox/bootstrap-ruhnu.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
 #
 # Clones land on the VM's own ext4, not a virtiofs mount, so builds run at
 # native speed. They live in the 20 GB overlay and are lost on `sbx rm`.

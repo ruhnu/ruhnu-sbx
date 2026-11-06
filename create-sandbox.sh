@@ -44,7 +44,7 @@ else
 fi
 
 echo "== bootstrapping repos and the OpenSpec store"
-ssh "$NAME.sbx" 'bash /home/agent/ruhnu-sbx/bootstrap-ruhnu.sh'
+ssh "$NAME.sbx" 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
 
 cat <<EOF
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run INSIDE a sandbox built from kit/claude-sbx.yaml:
-#   scp sbx/verify-kit.sh cdoc2.sbx:/tmp/ && ssh cdoc2.sbx 'bash /tmp/verify-kit.sh'
+#   ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/verify-kit.sh'
 #
 # Checks the toolchain, the credential placeholder, and whether Maven can
 # actually resolve a cdoc2 artifact from GitHub Packages through the proxy.

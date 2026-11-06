@@ -1,6 +1,6 @@
 # Docker Sandboxes (sbx): measured facts
 
-Everything here was measured on this host with `sbx/sbx-probe.sh`, 2026-11-06,
+Everything here was measured on this host with `in-sandbox/sbx-probe.sh`, 2026-11-06,
 sbx **v0.51.0**, against a stock `shell` sandbox under the **Balanced** network
 policy. Where the Docker docs say something different, or say nothing, that is
 noted.

@@ -21,9 +21,9 @@ Tested on Ubuntu 24.04 with sbx v0.51.0.
 | `kit/m2-settings.xml` | GitHub Packages auth via proxy-substituted placeholder |
 | `create-sandbox.sh` | **host-side:** create the sandbox, seed it, bootstrap it |
 | `run-sandbox.sh` | **host-side:** start it and open VS Code (or a shell) |
-| `bootstrap-ruhnu.sh` | clone the repos, wire them to a shared OpenSpec store |
-| `verify-kit.sh` | post-build checks, ending in a real artifact resolution |
-| `sbx-probe.sh` | environment probe for a stock sandbox |
+| `in-sandbox/bootstrap-ruhnu.sh` | clone the repos, wire them to a shared OpenSpec store |
+| `in-sandbox/verify-kit.sh` | post-build checks, ending in a real artifact resolution |
+| `in-sandbox/sbx-probe.sh` | environment probe for a stock sandbox |
 | `docs/findings.md` | measured sbx behaviour, including where the docs are wrong |
 | `docs/openspec-multirepo.md` | verified multi-repo OpenSpec store recipe |
 
@@ -176,7 +176,7 @@ sbx create --name ruhnu ./kit/ \
   ~/.m2/repository:/home/agent/.m2/repository
 ssh ruhnu.sbx 'mkdir -p ~/.claude'
 scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
-ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/bootstrap-ruhnu.sh'
+ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
 ```
 
 Giving:
@@ -215,7 +215,7 @@ otherwise takes the whole machine. Override per sandbox with `--cpus` /
 `--memory`.
 
 ```bash
-scp verify-kit.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/verify-kit.sh'
+ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/verify-kit.sh'
 ```
 
 The last check resolves a real cdoc2 artifact from GitHub Packages, exercising
@@ -308,15 +308,15 @@ ready. Connect first and then paste, or send the whole thing as
 On a fresh sandbox, copy the script in and run it:
 
 ```bash
-scp bootstrap-ruhnu.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
+scp in-sandbox/bootstrap-ruhnu.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
 ```
 
 It clones **this repo** into the sandbox as well, so afterwards the scripts and
 docs are there and run from the checkout — no copying:
 
 ```bash
-ssh ruhnu.sbx 'bash ~/workspace/ruhnu-sbx/bootstrap-ruhnu.sh'
-ssh ruhnu.sbx 'bash ~/workspace/ruhnu-sbx/verify-kit.sh'
+ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
+ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/verify-kit.sh'
 ```
 
 Claude inside the sandbox can then read `docs/` and run or edit these scripts
@@ -434,7 +434,7 @@ else.
 
 The workspace file lives inside the sandbox, at
 `~/workspace/ruhnu.code-workspace`, because that is where the VS Code server
-reads it from. `bootstrap-ruhnu.sh` regenerates it on every run, so edits made
+reads it from. `in-sandbox/bootstrap-ruhnu.sh` regenerates it on every run, so edits made
 to it in VS Code — added folders, workspace settings — are overwritten. Add a
 folder to `REPOS` in the script instead.
 
