@@ -19,6 +19,7 @@ Tested on Ubuntu 24.04 with sbx v0.51.0.
 | `kit/claude-sbx.yaml` | kit descriptor (v3): capabilities, egress policy, resources |
 | `kit/claude-sbx.dockerfile` | image: JDKs, Maven, OpenSpec, Maven settings |
 | `kit/m2-settings.xml` | GitHub Packages auth via proxy-substituted placeholder |
+| `create-sandbox.sh` | **host-side:** create the sandbox, seed it, bootstrap it |
 | `bootstrap-ruhnu.sh` | clone the repos, wire them to a shared OpenSpec store |
 | `verify-kit.sh` | post-build checks, ending in a real artifact resolution |
 | `sbx-probe.sh` | environment probe for a stock sandbox |
@@ -159,12 +160,22 @@ also works under the Locked Down preset.
 
 ```bash
 docker buildx build -f kit/claude-sbx.yaml -t claude-sbx:dev kit/
+./create-sandbox.sh                      # or: ./create-sandbox.sh <name>
+```
 
+`create-sandbox.sh` runs on the **host** — unlike the other scripts here, which
+run inside a sandbox. It creates the sandbox with the mounts below, copies your
+`~/.claude/CLAUDE.md` in, and runs the bootstrap. Equivalent to:
+
+```bash
 mkdir -p ~/.m2/repository
 sbx create --name ruhnu ./kit/ \
   ~/workspace/cdoc2-ssh \
   ~/workspace/ruhnu-sbx:/home/agent/ruhnu-sbx \
   ~/.m2/repository:/home/agent/.m2/repository
+ssh ruhnu.sbx 'mkdir -p ~/.claude'
+scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
+ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/bootstrap-ruhnu.sh'
 ```
 
 Giving:
@@ -254,6 +265,8 @@ Mounted workspaces are *not* captured by `sbx template save`, and they survive
 `sbx rm` — they are on the host.
 
 ### Your CLAUDE.md
+
+`create-sandbox.sh` copies it in; by hand it is:
 
 ```bash
 ssh ruhnu.sbx 'mkdir -p ~/.claude'
