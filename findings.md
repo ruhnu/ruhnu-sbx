@@ -1,0 +1,189 @@
+# Docker Sandboxes (sbx): measured facts
+
+Everything here was measured on this host with `sbx/sbx-probe.sh`, 2026-11-06,
+sbx **v0.51.0**, against a stock `shell` sandbox under the **Balanced** network
+policy. Where the Docker docs say something different, or say nothing, that is
+noted.
+
+## Platform
+
+Linux is supported and SSH works, which the docs never confirm. `sbx setup ssh`
+reports `● enabled · signed in as <user>`, access is `*.sbx -> sandboxd.sock
+(no port · login-gated)`, and `ssh <name>.sbx` lands in the sandbox. Install was
+`curl -fsSL https://get.docker.com | sudo SBX=1 sh` on Ubuntu 24.04 with KVM.
+
+**Gotcha:** do not use `newgrp kvm` to pick up the group. OpenSSH runs its
+`KnownHostsCommand` helper with `setresgid` back to your passwd GID, which an
+unprivileged `newgrp` subshell cannot do:
+
+```
+KnownHostsCommand-ORDER: setresgid 1000: Operation not permitted
+```
+
+Log out and back in instead.
+
+## Inside the sandbox
+
+Base is **Debian 13 (trixie)**, "hardened by DHI" — not Ubuntu, despite the
+docs' template examples. The `shell` kit is 1.1.0.
+
+```
+uid=1000(agent) gid=1000(agent) groups=1000(agent),27(sudo),999(docker)
+HOME=/home/agent
+```
+
+- **Passwordless sudo: yes.** The docs say "sudo access" but never whether a
+  password is needed.
+- **Docker engine: reachable as `agent` without sudo** — `agent` is in the
+  `docker` group. The docs never say how the agent reaches the daemon.
+- Preinstalled: `git`, `curl`, `jq`, `gh`, `rg`, `docker`.
+  Missing: `java`, `mvn`, `node`, `npm`.
+
+## Filesystem
+
+```
+host      virtiofs  935G   /home/jkusman/sbx-probe   <- the mounted workspace
+overlay   overlay    20G   /                          <- everything else
+```
+
+- The host workspace is mounted at **the same absolute path** as on the host,
+  over **virtiofs** — the slow path.
+- `$HOME` is on the overlay, which is **20 GB**. Undocumented, and a real
+  constraint: under a clone-inside-the-VM strategy that 20 GB holds the cloned
+  repos, `~/.m2`, and every Docker image Testcontainers pulls.
+- Files the agent writes into the mounted workspace show as `agent:agent`
+  inside. Host-side ownership not yet confirmed (host UID is also 1000).
+
+## Egress under the Balanced preset
+
+`403` is the gateway proxy denying; anything else means the host was reached.
+
+| Host | | |
+|---|---|---|
+| `repo.maven.apache.org` | 200 | allowed |
+| `github.com` | 200 | allowed |
+| `api.github.com` | 200 | allowed |
+| `maven.pkg.github.com` | 301 | allowed |
+| `ghcr.io/v2/` | 401 | allowed (401 is "authenticate", not a block) |
+| `registry.npmjs.org` | 200 | allowed |
+| `api.anthropic.com` | 404 | allowed |
+| `openspec.dev` | **403** | **denied** |
+| `edge.openspec.dev` | **403** | **denied** |
+
+So the only policy change the Spring + OpenSpec setup needs is:
+
+```bash
+sbx policy allow network openspec.dev
+```
+
+DNS resolves normally (`getent`, `nslookup`) despite UDP being blocked by
+default — the resolver is on the host side of the proxy.
+
+## Credentials: `gh` works without a token in the VM
+
+The stock image **already sets `GH_TOKEN` to a sentinel**. With no secret
+registered, `gh` reports:
+
+```
+X Failed to log in to github.com using token (GH_TOKEN)
+  The token in GH_TOKEN is invalid.
+```
+
+— not "not logged in". That is the injection scheme working: `gh`'s local auth
+check passes because a token is present, and the host-side proxy is meant to
+substitute the real value on the way out. Register the source on the host:
+
+```bash
+sbx secret set github --command 'gh auth token'
+```
+
+The sentinel is the literal string `gho_sbxproxymanaged000000000000000000000`.
+With a secret registered, `curl -H "Authorization: Bearer $GH_TOKEN"
+https://api.github.com/rate_limit` returns **200** from inside the sandbox — so
+the real token genuinely never enters the VM, and substitution works.
+
+### ...but the built-in secret does not cover maven.pkg.github.com
+
+The same sentinel against `maven.pkg.github.com` returns **401** — with Basic
+*and* with Bearer — while the identical request from the host with the real
+token returns 302. A 401 rather than 403 rules out the egress policy. The
+built-in `github` service secret covers `api.github.com` and not the packages
+registry.
+
+This matters because **GitHub Packages' Maven registry requires a token even to
+download public packages**, unlike Maven Central.
+
+### Fix: an explicit custom secret
+
+`sbx secret set-custom` (experimental in v0.51.0) binds a secret to hosts you
+name, and restores full isolation:
+
+```bash
+printf '%s' "$(cat ~/.config/gh-packages-read)" | sbx secret set-custom \
+  --host maven.pkg.github.com --env MAVEN_GH_TOKEN --value-stdin
+```
+
+It generates a placeholder (e.g. `sbx-cs-lcSgZJEuHomcYyA9`), sets
+`$MAVEN_GH_TOKEN` in the sandbox to it, and the proxy swaps in the real token
+on requests to that host. The real value never enters the VM.
+
+Two details that decide the Maven config:
+
+- Substitution is a **literal string match on request headers**. Maven's
+  default Basic auth base64-encodes `user:token`, hiding the placeholder — so
+  `settings.xml` must use `<httpHeaders>` with `Bearer ${env.MAVEN_GH_TOKEN}`,
+  not `<username>`/`<password>`. The GitHub Packages Maven registry accepts
+  Bearer (verified: 302 to blob storage).
+- Bind to `maven.pkg.github.com` only. The redirect host serves signed URLs and
+  clients drop `Authorization` across hosts anyway.
+
+Use `--value-stdin`, never `--value`/`--token`, which expose the secret in
+shell history and the process list. Keep the PAT classic and `read:packages`
+only, with an expiry: it can download packages and nothing else.
+
+`set-custom` is marked experimental, so this may move between releases.
+
+`ghcr.io` public image pulls, by contrast, work anonymously from inside the
+sandbox — confirmed, no credentials needed.
+
+The redirect target for Maven artifacts is
+`github-registry-files.githubusercontent.com` (measured), which must be in the
+egress allowlist or downloads fail *after* a successful authentication.
+
+The username in Basic auth is ignored when the token is valid — a literal `x`
+works — so no per-user build configuration is needed.
+
+## Defaults worth overriding
+
+A stock sandbox was given `CPU: 24`, `Memory: 11.6 GiB` — the whole machine.
+Set `resources@1` in the kit.
+
+## Kit capabilities: the spec runs ahead of the runtime
+
+Built with sbx v0.51.0 / sandbox-kit `3.0.0-m.11`. The descriptor decodes
+strictly — an unknown field or an unimplemented capability fails the build —
+and the spec documents more than this build supports.
+
+| Capability | Result |
+|---|---|
+| `sbx@1` | works (config-less; any `config` is an error) |
+| `resources@1` | works. Fields are `cpu` (float, singular — **not** `cpus`) and `memory` (byte-size string, `8g` — **not** `8GiB`) |
+| `network-policy@1` | works. `install:` / `runtime:`, each with `allow:` / `deny:` lists |
+| `long-running@1` | works (config-less) |
+| `git-identity@1` | works — carries the host's git identity into the sandbox. Without it `openspec store setup` cannot make its initial commit and nothing can commit at all |
+| `dockerd@1` | **"unsupported capability type"** — in the spec, not in this build. Not needed: the `claude-code-docker` base ships docker-ce and the engine is reachable as `agent` without it |
+
+Mark anything uncertain `optional: true` so kit resolution degrades instead of
+failing.
+
+## Base image
+
+There is no `docker/sandbox-templates:claude`. Tags are
+`<agent>[-docker][-<version>]`, e.g. `claude-code-docker-0.10.0`; the `-docker`
+flavour ships the in-sandbox engine. Pin the version — the bare tag moves.
+
+That base already provides JDK 17, 21 **and** 25, Maven 3.9.12, `gh`,
+`ripgrep`, `jq`, `node`, `python3` and docker-ce, so most of a Java kit's apt
+layer is redundant. It also presets `JAVA_TOOL_OPTIONS` to route Java through
+`gateway.docker.internal:3128`, which is why Maven reaches the egress proxy
+with no extra configuration.

@@ -1,0 +1,103 @@
+# syntax=docker/sandbox-kit:3
+#
+# Workload kit: Claude Code plus a Java/Maven toolchain and OpenSpec, for the
+# cdoc2 repositories. Built together with claude-sbx.dockerfile:
+#
+#   docker buildx build -f sbx/claude-sbx.yaml -t claude-sbx:dev sbx/
+#   sbx run --name cdoc2 claude-sbx:dev
+#
+# Field names follow sandbox-kit-spec v3 (docs/spec/capabilities/). The parser
+# decodes strictly: any unrecognized field anywhere is a build error.
+
+schemaVersion: "3"
+kind: workload
+
+displayName: Claude + Java/Maven + OpenSpec
+description: >-
+  Claude Code with JDK 21 and 17, Maven and the OpenSpec CLI, for spec-driven
+  work on the ruhnu cdoc2 forks and their GitHub Packages dependencies.
+
+capabilities:
+  # Declares this image targets the sandbox agent platform. Config-less: any
+  # config value is a validation error.
+  - type: com.docker.sandbox/sbx@1
+
+  # A stock sandbox on this host was given 24 CPU / 11.6 GiB — the whole
+  # machine. Cap it so a runaway Maven or Testcontainers run can't take the
+  # desktop with it. `cpu` is singular and a float; `memory` is a byte-size
+  # string. Overridable at create time with --cpus / --memory.
+  - type: com.docker.sandbox/resources@1
+    config:
+      cpu: 8
+      memory: 8g
+
+  # NOTE: com.docker.sandbox/dockerd@1 is in the v3 spec but NOT implemented by
+  # sbx v0.51.0 / sandbox-kit 3.0.0-m.11 — declaring it fails kit resolution
+  # with "unsupported capability type". Not needed here anyway: the
+  # claude-code-docker base ships docker-ce, and a stock `shell` sandbox had a
+  # working engine with no such declaration. Revisit if Testcontainers can't
+  # reach the daemon.
+
+  # Keep the sandbox up after the last client session disconnects, so quitting
+  # Claude doesn't tear down a VS Code Remote-SSH session attached to it.
+  - type: com.docker.sandbox/long-running@1
+
+  # Without a git identity, `openspec store setup` cannot create the store's
+  # initial commit, and nothing in the sandbox can commit at all. Marked
+  # optional so kit resolution still succeeds if this sbx build doesn't
+  # implement it — dockerd@1 is in the spec but not in 3.0.0-m.11, so the
+  # runtime does run behind the spec.
+  - type: com.docker.sandbox/git-identity@1
+    optional: true
+
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # Open only while install hooks run; closed before the agent starts.
+      install:
+        allow:
+          - openspec.dev
+          - github.com
+          - objects.githubusercontent.com
+          - deb.debian.org
+      # The agent's steady state. Measured under the Balanced preset,
+      # everything here except openspec.dev was already reachable; listed
+      # explicitly so the kit also works under Locked Down.
+      runtime:
+        allow:
+          - api.anthropic.com
+          - repo.maven.apache.org
+          - repo1.maven.org
+          - repo.spring.io
+          - maven.pkg.github.com      # needs a token even for public packages
+          - github.com
+          - api.github.com
+          - codeload.github.com
+          - ghcr.io
+          - registry.npmjs.org
+          # maven.pkg.github.com authenticates, then 302s to blob storage on a
+          # different host. Under deny-by-default the auth succeeds and the
+          # redirect then fails — a confusing way to lose an afternoon.
+          # Measured 2026-11-06 against the cdoc2-lib 2.0.0 pom:
+          - github-registry-files.githubusercontent.com   # confirmed
+          - pkg-containers.githubusercontent.com          # ghcr.io blobs
+          - objects.githubusercontent.com                 # release assets
+        deny:
+          # The OpenSpec docs never say what this is for; the Dockerfile sets
+          # OPENSPEC_NO_UPDATE_CHECK and DO_NOT_TRACK so nothing should reach
+          # for it. Deny wins over allow, so this is belt and braces.
+          - edge.openspec.dev
+
+# Credentials are NOT configured here. Register them on the host:
+#
+#   # Anthropic / gh / api.github.com — built-in service secret
+#   sbx secret set github --command '/bin/cat /home/jkusman/.config/gh-packages-read'
+#
+#   # Maven: the built-in github secret does NOT cover maven.pkg.github.com
+#   # (measured: 401 for its sentinel, Basic and Bearer alike). An explicit
+#   # custom secret does, and keeps the real token on the host:
+#   printf '%s' "$(cat ~/.config/gh-packages-read)" | sbx secret set-custom \
+#     --host maven.pkg.github.com --env MAVEN_GH_TOKEN --value-stdin
+#
+# The PAT must be a *classic* token with read:packages only — GitHub Packages
+# rejects fine-grained tokens, and requires a token even for public packages.
+# See findings.md and m2-settings.xml.

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven settings for the sandbox, baked into the kit at /home/agent/.m2/settings.xml.
+
+  Based on the cdoc2-java-ref-impl README's "Maven dependencies" section, with
+  two additions it leaves out:
+
+   * <activeProfiles>. The README shows a <profile> but never activates it, so
+     as published the snippet has no effect.
+   * authentication. maven.pkg.github.com requires a token even for PUBLIC
+     packages (unlike Maven Central); the README only links to GitHub's PAT
+     docs. The <server><id> must match the <repository><id>, hence "github".
+
+  NO TOKEN IS STORED HERE, and none ever should be — this file is committed.
+
+  How the credential actually arrives (measured 2026-11-06, sbx v0.51.0):
+
+  sbx's built-in "github" service secret covers api.github.com but NOT
+  maven.pkg.github.com, which returns 401 for its $GH_TOKEN sentinel. The fix
+  is an explicit custom secret bound to the packages host, registered on the
+  host with "sbx secret set-custom" (exact command in findings.md). That sets
+  $MAVEN_GH_TOKEN in the sandbox to a generated placeholder, and the host-side
+  proxy swaps in the real token on requests to that host. The real value never
+  enters the VM.
+
+  Hence httpHeaders rather than username/password: the proxy substitutes by
+  literal string match on the header, and Maven's default Basic auth would
+  base64-encode the placeholder out of recognition. Bearer is accepted by the
+  GitHub Packages Maven registry (verified: 302 to blob storage).
+
+  Use a CLASSIC PAT with read:packages only; GitHub Packages rejects
+  fine-grained tokens. Set an expiry. See findings.md.
+
+  NOTE: XML comments cannot contain a double hyphen, so command-line flags are
+  described in prose here rather than quoted literally.
+
+  Per the README, GitHub's package index is organization-level, so pointing at
+  any one open-eid repo resolves every cdoc2-* artifact.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <servers>
+    <server>
+      <id>github-ruhnu</id>
+      <configuration>
+        <httpHeaders>
+          <property>
+            <name>Authorization</name>
+            <value>Bearer ${env.MAVEN_GH_TOKEN}</value>
+          </property>
+        </httpHeaders>
+      </configuration>
+    </server>
+    <server>
+      <id>github</id>
+      <configuration>
+        <httpHeaders>
+          <property>
+            <name>Authorization</name>
+            <value>Bearer ${env.MAVEN_GH_TOKEN}</value>
+          </property>
+        </httpHeaders>
+      </configuration>
+    </server>
+  </servers>
+
+  <profiles>
+    <profile>
+      <id>github</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <url>https://repo1.maven.org/maven2</url>
+        </repository>
+
+        <!--
+          The ruhnu fork first, so locally published fork artifacts win over
+          upstream once they exist. A fork does not inherit the upstream's
+          GitHub Packages, so until something is published to the ruhnu org
+          these lookups 404 and Maven falls through to open-eid.
+        -->
+        <repository>
+          <id>github-ruhnu</id>
+          <url>https://maven.pkg.github.com/ruhnu/cdoc2-openapi</url>
+        </repository>
+
+        <repository>
+          <id>github</id>
+          <url>https://maven.pkg.github.com/open-eid/cdoc2-openapi</url>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
+
+  <activeProfiles>
+    <activeProfile>github</activeProfile>
+  </activeProfiles>
+
+</settings>
