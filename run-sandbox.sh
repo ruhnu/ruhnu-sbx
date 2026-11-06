@@ -39,18 +39,30 @@ if ! command -v code > /dev/null; then
     exit 1
 fi
 
-# --new-window: without it the CLI hands the URI to an already-running VS Code,
-# and that handoff crashes with SIGTRAP when another window is open. A separate
-# window is wanted here anyway — the sandbox session should not displace
-# whatever else you have open.
+# Run `code` detached from any VS Code that may have spawned this shell.
+#
+# In a VS Code integrated terminal, VSCODE_IPC_HOOK_CLI points at that
+# instance's socket and `code` becomes a shim that talks to it rather than
+# starting anything: the URI is handed to the running window (which crashes it
+# with SIGTRAP), or, if the socket has gone stale, the command exits silently
+# having done nothing. Unsetting the hook makes it behave as it does from a
+# plain terminal or the desktop launcher.
+#
+# --new-window for the same reason from the other direction: never reuse an
+# existing window. The sandbox session should not displace what you have open.
 #
 # bootstrap-ruhnu.sh writes the workspace file. Without it there is nothing
 # multi-root to open, and opening the missing path gives an empty window.
+code_detached() {
+    env -u VSCODE_IPC_HOOK_CLI -u VSCODE_GIT_IPC_HANDLE \
+        code --new-window "$@"
+}
+
 if ssh "$NAME.sbx" "test -f $WS" 2> /dev/null; then
     echo "== opening $WS"
-    code --new-window --file-uri "vscode-remote://ssh-remote+$NAME.sbx$WS"
+    code_detached --file-uri "vscode-remote://ssh-remote+$NAME.sbx$WS"
 else
     echo "note: $WS missing; run in-sandbox/bootstrap-ruhnu.sh in the sandbox" >&2
     echo "== opening /home/agent/workspace instead"
-    code --new-window --folder-uri "vscode-remote://ssh-remote+$NAME.sbx/home/agent/workspace"
+    code_detached --folder-uri "vscode-remote://ssh-remote+$NAME.sbx/home/agent/workspace"
 fi
