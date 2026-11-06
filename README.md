@@ -20,6 +20,7 @@ Tested on Ubuntu 24.04 with sbx v0.51.0.
 | `kit/claude-sbx.dockerfile` | image: JDKs, Maven, OpenSpec, Maven settings |
 | `kit/m2-settings.xml` | GitHub Packages auth via proxy-substituted placeholder |
 | `create-sandbox.sh` | **host-side:** create the sandbox, seed it, bootstrap it |
+| `run-sandbox.sh` | **host-side:** start it and open VS Code (or a shell) |
 | `bootstrap-ruhnu.sh` | clone the repos, wire them to a shared OpenSpec store |
 | `verify-kit.sh` | post-build checks, ending in a real artifact resolution |
 | `sbx-probe.sh` | environment probe for a stock sandbox |
@@ -389,8 +390,15 @@ the sandbox discards these locally built artifacts along with everything else.
 
 ## 6. VS Code
 
-All repos plus the OpenSpec store in one window — `bootstrap-ruhnu.sh` writes
-the multi-root workspace file, so this just opens it:
+```bash
+./run-sandbox.sh                 # start the sandbox, open VS Code on it
+./run-sandbox.sh --no-vscode     # start it and drop into a shell instead
+./run-sandbox.sh myname          # a sandbox other than 'ruhnu'
+```
+
+Host-side, like `create-sandbox.sh`. It starts the sandbox if it is stopped,
+then opens the multi-root workspace — all the repos plus the OpenSpec store in
+one window. By hand:
 
 ```bash
 code --file-uri "vscode-remote://ssh-remote+ruhnu.sbx/home/agent/workspace/ruhnu.code-workspace"
