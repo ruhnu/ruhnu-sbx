@@ -238,17 +238,40 @@ ready. Connect first and then paste, or send the whole thing as
 
 ## 5. Clone the repos and the OpenSpec store
 
+On a fresh sandbox, copy the script in and run it:
+
 ```bash
 scp bootstrap-ruhnu.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
+```
+
+It clones **this repo** into the sandbox as well, so afterwards the scripts and
+docs are there and run from the checkout — no copying:
+
+```bash
+ssh ruhnu.sbx 'bash ~/workspace/ruhnu-sbx/bootstrap-ruhnu.sh'
+ssh ruhnu.sbx 'bash ~/workspace/ruhnu-sbx/verify-kit.sh'
+```
+
+Claude inside the sandbox can then read `docs/` and run or edit these scripts
+directly. One thing it cannot do: rebuild the image it is running in.
+`docker buildx build` is a host-side step, so changes under `kit/` still have
+to be applied from the host.
+
+Until the repo is pushed there is nothing to clone — the bootstrap warns and
+continues. Copy it in with its history instead:
+
+```bash
+cd ~/workspace && tar cf - ruhnu-sbx | ssh ruhnu.sbx 'tar xf - -C /home/agent/workspace'
 ```
 
 Produces, inside the sandbox:
 
 ```
 ~/workspace/
-├── cdoc2-openapi/        ├── cdoc2-shares-server/
-├── cdoc2-auth/           ├── .github/           <- org profile page
+├── cdoc2-openapi/        ├── .github/           <- org profile page
+├── cdoc2-auth/           ├── ruhnu-sbx/         <- this repo
 ├── cdoc2-java-ref-impl/  └── ruhnu-openspec/    <- OpenSpec store, id `ruhnu`
+├── cdoc2-shares-server/
 ```
 
 The four cdoc2 forks track `develop`; `.github` tracks `main`. GitHub reports
