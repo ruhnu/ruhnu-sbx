@@ -160,13 +160,23 @@ also works under the Locked Down preset.
 ```bash
 docker buildx build -f kit/claude-sbx.yaml -t claude-sbx:dev kit/
 
-mkdir -p ~/.m2/repository
+mkdir -p ~/.m2/repository ~/workspace/ruhnu-data
 sbx create --name ruhnu ./kit/ \
-  ~/workspace/ruhnu-sbx \
+  ~/workspace/ruhnu-data \
+  ~/workspace/ruhnu-sbx:/home/agent/ruhnu-sbx \
   ~/.m2/repository:/home/agent/.m2/repository
 ```
 
-The cloned repos stay on the VM's own ext4 — native build speed. Two things are
+Giving:
+
+```
+/home/agent/workspace/                 VM-local: cloned repos, OpenSpec store
+/home/agent/ruhnu-sbx/                 mounted: this repo
+/home/agent/.m2/repository/            mounted: the dependency cache
+/home/jkusman/workspace/ruhnu-data/    mounted: anything not in git
+```
+
+The cloned repos stay on the VM's own ext4 — native build speed. The rest is
 mounted from the host, deliberately:
 
 **`~/.m2/repository`**, so the dependency cache survives `sbx rm`. That is 293
@@ -175,12 +185,17 @@ cost for this project (15s VM-local vs 15s mounted, warm offline build); see
 `docs/findings.md`. Mount the `repository` subdirectory, not `~/.m2` — the kit
 bakes `settings.xml` into `~/.m2/` and mounting the parent would hide it.
 
-**This repo**, so its scripts and docs are available inside and editable from
-either side. Drop it if you would rather the agent could not write to your host
-checkout.
+**This repo**, at `/home/agent/ruhnu-sbx`, so its scripts and docs are available
+inside and editable from either side. Append `:ro` if you would rather the agent
+could not write to your host checkout — at the cost of it not being able to fix
+the scripts in place.
 
-The first positional path is the *primary* workspace and must mount at its host
-path; `HOST:TARGET` is only accepted for the ones after it.
+**`ruhnu-data`**, a directory for anything not in git. It is first because the
+*primary* workspace must mount at its host path — `HOST:TARGET` is rejected for
+it, and only accepted for the paths after it. That is also why it, rather than
+this repo, is what you land in on `ssh ruhnu.sbx`; `cd ~/workspace` gets you to
+the code. Point it at whatever host directory you actually need, or drop it and
+let `ruhnu-sbx` be the primary at its host path instead.
 
 The sandbox is capped at 8 CPU / 8 GiB by `resources@1`; a stock sandbox
 otherwise takes the whole machine. Override per sandbox with `--cpus` /
