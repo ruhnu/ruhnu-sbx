@@ -160,9 +160,9 @@ also works under the Locked Down preset.
 ```bash
 docker buildx build -f kit/claude-sbx.yaml -t claude-sbx:dev kit/
 
-mkdir -p ~/.m2/repository ~/workspace/ruhnu-data
+mkdir -p ~/.m2/repository
 sbx create --name ruhnu ./kit/ \
-  ~/workspace/ruhnu-data \
+  ~/workspace/cdoc2-ssh \
   ~/workspace/ruhnu-sbx:/home/agent/ruhnu-sbx \
   ~/.m2/repository:/home/agent/.m2/repository
 ```
@@ -173,7 +173,7 @@ Giving:
 /home/agent/workspace/                 VM-local: cloned repos, OpenSpec store
 /home/agent/ruhnu-sbx/                 mounted: this repo
 /home/agent/.m2/repository/            mounted: the dependency cache
-/home/jkusman/workspace/ruhnu-data/    mounted: anything not in git
+/home/<you>/workspace/cdoc2-ssh/       mounted: the GitLab repo, at its host path
 ```
 
 The cloned repos stay on the VM's own ext4 — native build speed. The rest is
@@ -190,12 +190,13 @@ inside and editable from either side. Append `:ro` if you would rather the agent
 could not write to your host checkout — at the cost of it not being able to fix
 the scripts in place.
 
-**`ruhnu-data`**, a directory for anything not in git. It is first because the
-*primary* workspace must mount at its host path — `HOST:TARGET` is rejected for
-it, and only accepted for the paths after it. That is also why it, rather than
-this repo, is what you land in on `ssh ruhnu.sbx`; `cd ~/workspace` gets you to
-the code. Point it at whatever host directory you actually need, or drop it and
-let `ruhnu-sbx` be the primary at its host path instead.
+**`cdoc2-ssh`**, which lives on `gitlab.cyber.ee` over SSH. The sandbox has no
+key for it and internal hosts are not in the egress policy, so mounting is the
+only way it gets in — the bootstrap cannot clone it. It takes the first slot
+because the *primary* workspace must mount at its host path: `HOST:TARGET` is
+rejected for it and accepted only for the paths after. That is also why it,
+rather than the code, is what you land in on `ssh ruhnu.sbx`; `cd ~/workspace`
+gets you to the repos.
 
 The sandbox is capped at 8 CPU / 8 GiB by `resources@1`; a stock sandbox
 otherwise takes the whole machine. Override per sandbox with `--cpus` /

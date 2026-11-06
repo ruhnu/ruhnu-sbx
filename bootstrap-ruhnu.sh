@@ -33,9 +33,18 @@ REPOS=(
     cdoc2-java-ref-impl:develop
     cdoc2-shares-server:develop
     .github:main
-    # This repo, so Claude can fix the kit and the scripts from inside the
-    # sandbox they configure. Skipped with a warning until it is pushed.
-    ruhnu-sbx:main
+)
+
+# Directories mounted from the host rather than cloned, added to the VS Code
+# workspace by absolute path if they are present. ruhnu-sbx is mounted so that
+# edits to the kit and these scripts reach the host; cdoc2-ssh lives on
+# gitlab.cyber.ee, which the sandbox can reach neither by key nor by policy,
+# so mounting is the only way in.
+# Globs, because the primary workspace mounts at its host path and so carries
+# the host user's name, which this script should not hardcode.
+MOUNT_GLOBS=(
+    /home/agent/ruhnu-sbx
+    /home/*/workspace/cdoc2-ssh
 )
 
 # Only the code repos get OpenSpec wiring; .github holds the org profile page
@@ -99,16 +108,28 @@ done
 # server reads it from; opening it needs --file-uri, not --folder-uri.
 WS_FILE="$SRC/ruhnu.code-workspace"
 echo "== writing $WS_FILE"
+
+# Cloned repos and the store are relative to the workspace file; mounted
+# directories live outside $SRC and need absolute paths.
+ws_paths=()
+for entry in "${REPOS[@]}"; do
+    ws_paths+=("${entry%%:*}")
+done
+ws_paths+=("$STORE_DIR")
+for glob in "${MOUNT_GLOBS[@]}"; do
+    for d in $glob; do
+        [ -d "$d" ] && ws_paths+=("$d")
+    done
+done
+
 {
     printf '{\n    "folders": [\n'
     sep=""
-    for entry in "${REPOS[@]}"; do
-        r="${entry%%:*}"
-        printf '%s        { "path": "%s" }' "$sep" "$r"
+    for p in "${ws_paths[@]}"; do
+        printf '%s        { "path": "%s" }' "$sep" "$p"
         sep=$',\n'
     done
-    printf '%s        { "path": "%s" }\n' "$sep" "$STORE_DIR"
-    printf '    ],\n    "settings": {}\n}\n'
+    printf '\n    ],\n    "settings": {}\n}\n'
 } > "$WS_FILE"
 
 cd "$SRC/${OPENSPEC_REPOS[0]}"

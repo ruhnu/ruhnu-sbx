@@ -38,6 +38,45 @@ HOME=/home/agent
   `docker` group. The docs never say how the agent reaches the daemon.
 - Preinstalled: `git`, `curl`, `jq`, `gh`, `rg`, `docker`.
   Missing: `java`, `mvn`, `node`, `npm`.
+- **No locale is set.** `LANG` and `LC_ALL` are empty, so everything runs
+  under `POSIX`, although `C.utf8` is installed. See *Locale* below.
+
+## Locale: the JVM encodes file names as ASCII
+
+Measured 2026-11-06 in the `claude-code-docker-0.10.0` base, JDK 21:
+
+```
+$ locale        ->  LC_CTYPE="POSIX" (LANG, LC_ALL empty)
+$ locale -a     ->  C  C.utf8  POSIX
+$ java -XshowSettings:properties -version
+    file.encoding    = UTF-8
+    native.encoding  = ANSI_X3.4-1968
+    sun.jnu.encoding = ANSI_X3.4-1968
+```
+
+`file.encoding` defaults to UTF-8 since JDK 18 (JEP 400), so file *contents*
+are fine. File *names* are encoded with `sun.jnu.encoding`, which still comes
+from the locale. Under POSIX that is ASCII, and any non-ASCII path fails:
+
+```
+java.nio.file.InvalidPathException: Malformed input or input contains
+  unmappable characters: ann‮txt.exe
+```
+
+This made `./mvnw test` fail in cdoc2-java-ref-impl:
+`TarDeflateTest.shouldValidateFileNameWhenCreatingTar` creates files with
+hostile names, including a U+202E right-to-left override. The test only
+tolerates `InvalidPathException` on Windows. Because `cdoc2-lib` failed,
+`cdoc2-cli` was skipped. With `LC_ALL=C.UTF-8` the whole reactor passes.
+
+`-Dsun.jnu.encoding=UTF-8` is not a fix: that property is read-only and
+unsupported as a command-line override. The locale has to be right.
+
+Fix: `ENV LANG=C.UTF-8` in the kit dockerfile. `C.UTF-8` is already in the
+base, so no `locales` package is needed. Use `LANG` rather than `LC_ALL`, so
+individual `LC_*` can still be overridden. Image `ENV` reaches SSH and VS Code
+sessions too; the base's `JAVA_TOOL_OPTIONS` arrives the same way. Until the
+image is rebuilt, `export LANG=C.UTF-8` in the shell works around it.
 
 ## Filesystem
 

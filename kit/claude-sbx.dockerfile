@@ -31,6 +31,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+
+# The base image sets no locale, so everything runs under POSIX and the JVM
+# encodes file names as ASCII (sun.jnu.encoding=ANSI_X3.4-1968), even though
+# file.encoding defaults to UTF-8 since JDK 18. Any non-ASCII path then throws
+# InvalidPathException; this broke cdoc2-lib's TarDeflateTest. C.UTF-8 ships
+# with the base, so no locales package is needed. LANG rather than LC_ALL, so
+# individual LC_* can still be overridden. See findings.md.
+ENV LANG=C.UTF-8
 RUN update-java-alternatives --set java-1.21.0-openjdk-amd64 2>/dev/null || true
 
 USER agent
