@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run INSIDE a sandbox built from claude-sbx.yaml:
+# Run INSIDE a sandbox built from kit/claude-sbx.yaml:
 #   scp sbx/verify-kit.sh cdoc2.sbx:/tmp/ && ssh cdoc2.sbx 'bash /tmp/verify-kit.sh'
 #
 # Checks the toolchain, the credential placeholder, and whether Maven can
@@ -33,7 +33,7 @@ hr "maven settings in place"
 ls -l "$HOME/.m2/settings.xml" 2>&1
 
 hr "THE TEST: resolve a cdoc2 artifact from GitHub Packages"
-# Exercises m2-settings.xml -> MAVEN_GH_TOKEN placeholder -> proxy
+# Exercises kit/m2-settings.xml -> MAVEN_GH_TOKEN placeholder -> proxy
 # substitution -> maven.pkg.github.com -> redirect to blob storage.
 out=$(mvn -B dependency:get -Dartifact=ee.cyber.cdoc2:cdoc2-lib:2.0.0 2>&1)
 rc=$?

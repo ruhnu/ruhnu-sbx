@@ -1,6 +1,5 @@
 # Build with:
-#   docker buildx build -f sbx/claude-sbx.yaml -t claude-sbx:dev \
-#     --build-arg GH_USER=<your-github-username> sbx/
+#   docker buildx build -f kit/claude-sbx.yaml -t claude-sbx:dev kit/
 #
 # The YAML descriptor beside this file is the build entrypoint, not this
 # Dockerfile; sbx's buildx frontend reads the descriptor and this file together.

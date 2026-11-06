@@ -14,16 +14,19 @@ Tested on Ubuntu 24.04 with sbx v0.51.0.
 
 ## Contents
 
-| File | |
+| Path | |
 |---|---|
-| `claude-sbx.yaml` | kit descriptor (v3): capabilities, egress policy, resources |
-| `claude-sbx.dockerfile` | image: JDKs, Maven, OpenSpec, Maven settings |
-| `m2-settings.xml` | GitHub Packages auth via proxy-substituted placeholder |
-| `bootstrap-ruhnu.sh` | clone the four forks, wire them to a shared OpenSpec store |
+| `kit/claude-sbx.yaml` | kit descriptor (v3): capabilities, egress policy, resources |
+| `kit/claude-sbx.dockerfile` | image: JDKs, Maven, OpenSpec, Maven settings |
+| `kit/m2-settings.xml` | GitHub Packages auth via proxy-substituted placeholder |
+| `bootstrap-ruhnu.sh` | clone the repos, wire them to a shared OpenSpec store |
 | `verify-kit.sh` | post-build checks, ending in a real artifact resolution |
 | `sbx-probe.sh` | environment probe for a stock sandbox |
-| `findings.md` | measured sbx behaviour, including where the docs are wrong |
-| `openspec-multirepo.md` | verified multi-repo OpenSpec store recipe |
+| `docs/findings.md` | measured sbx behaviour, including where the docs are wrong |
+| `docs/openspec-multirepo.md` | verified multi-repo OpenSpec store recipe |
+
+Changing anything in `kit/` means rebuilding the image; the scripts at the root
+run inside a sandbox and take effect immediately.
 
 ## 1. Host prerequisites
 
@@ -69,7 +72,7 @@ packages — unlike Maven Central, which needs none. So a build cannot start
 without one, and this is the token the sandbox needs.
 
 Inside the sandbox it appears as `$MAVEN_GH_TOKEN`, holding a placeholder;
-`m2-settings.xml` passes that to Maven and the host-side proxy swaps in the
+`kit/m2-settings.xml` passes that to Maven and the host-side proxy swaps in the
 real value on the way out.
 
 Create a **classic** personal access token at
@@ -122,10 +125,10 @@ The second command prints a generated placeholder such as
 
 Why two: the built-in `github` secret substitutes for `api.github.com` but
 returns 401 for `maven.pkg.github.com`. And because substitution is a literal
-string match on request headers, `m2-settings.xml` sends
+string match on request headers, `kit/m2-settings.xml` sends
 `Authorization: Bearer ${env.MAVEN_GH_TOKEN}` via `<httpHeaders>` rather than
 Maven's default Basic auth, which would base64-encode the placeholder out of
-recognition. See `findings.md`.
+recognition. See `docs/findings.md`.
 
 ### 2.3 Claude
 
@@ -149,14 +152,14 @@ sbx policy allow network openspec.dev
 sbx policy ls
 ```
 
-Everything else the build needs is declared in `claude-sbx.yaml`, so the kit
+Everything else the build needs is declared in `kit/claude-sbx.yaml`, so the kit
 also works under the Locked Down preset.
 
 ## 4. Build and create
 
 ```bash
-docker buildx build -f claude-sbx.yaml -t claude-sbx:dev .
-sbx create --name ruhnu ./
+docker buildx build -f kit/claude-sbx.yaml -t claude-sbx:dev kit/
+sbx create --name ruhnu ./kit/
 ```
 
 No workspace path, so the sandbox is mountless and everything lives on the VM's
@@ -181,11 +184,11 @@ in from the host as an extra workspace. Workspaces are positional arguments to
 `sbx create`:
 
 ```bash
-sbx create --name ruhnu ./                      # mountless (the default here)
-sbx create --name ruhnu ./ ~/data               # mounted at the same absolute path
-sbx create --name ruhnu ./ ~/data:/home/agent/data   # at a chosen path
-sbx create --name ruhnu ./ ~/data:ro            # read-only
-sbx create --name ruhnu ./ ~/a ~/b              # several
+sbx create --name ruhnu ./kit/                      # mountless (the default here)
+sbx create --name ruhnu ./kit/ ~/data               # mounted at the same absolute path
+sbx create --name ruhnu ./kit/ ~/data:/home/agent/data   # at a chosen path
+sbx create --name ruhnu ./kit/ ~/data:ro            # read-only
+sbx create --name ruhnu ./kit/ ~/a ~/b              # several
 ```
 
 With no target the host path is mounted at **the same absolute path** inside
@@ -257,7 +260,7 @@ and does not want `.claude/` skills committed into it.
 
 One store, shared by all four repos, so a change spanning the API spec and its
 consumers is one OpenSpec change rather than four. Restart Claude Code before
-the `/opsx:*` commands appear. See `openspec-multirepo.md` for why the repos
+the `/opsx:*` commands appear. See `docs/openspec-multirepo.md` for why the repos
 must not keep their own `openspec/specs` and `openspec/changes` directories.
 
 ### Build order: cdoc2-openapi and cdoc2-auth first
@@ -333,7 +336,7 @@ To keep a warm `~/.m2` for future sandboxes:
 ```bash
 sbx stop ruhnu
 sbx template save ruhnu ruhnu-base:v1
-sbx create --name ruhnu2 -t ruhnu-base:v1 ./
+sbx create --name ruhnu2 -t ruhnu-base:v1 ./kit/
 ```
 
 Saved templates capture credentials written to the sandbox filesystem. Ours
