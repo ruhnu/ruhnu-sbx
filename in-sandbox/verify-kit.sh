@@ -32,6 +32,26 @@ df -hT / "$HOME" 2>&1
 hr "maven settings in place"
 ls -l "$HOME/.m2/settings.xml" 2>&1
 
+hr "claude session transcripts: mounted, writable, siblings intact"
+# ~/.claude/projects is mounted from the host so sessions outlive `sbx rm`.
+# Mounting it must not hide its siblings — CLAUDE.md and, after /login,
+# .credentials.json — the way mounting ~/.m2 would hide settings.xml.
+ls -la "$HOME/.claude" 2>&1
+if command -v findmnt > /dev/null; then
+    findmnt -no SOURCE,FSTYPE,OPTIONS "$HOME/.claude/projects" \
+        || echo "NOT A MOUNT POINT -- sessions will not survive sbx rm"
+else
+    grep -F " $HOME/.claude/projects " /proc/mounts \
+        || echo "NOT A MOUNT POINT -- sessions will not survive sbx rm"
+fi
+if touch "$HOME/.claude/projects/.verify-kit" 2>/dev/null; then
+    rm -f "$HOME/.claude/projects/.verify-kit"; echo "writable OK"
+else
+    echo "NOT WRITABLE by agent -- Claude cannot record sessions"
+fi
+[ -f "$HOME/.claude/CLAUDE.md" ] && echo "CLAUDE.md present" \
+    || echo "CLAUDE.md MISSING -- hidden by the mount, or never copied"
+
 hr "THE TEST: resolve a cdoc2 artifact from GitHub Packages"
 # Exercises kit/m2-settings.xml -> MAVEN_GH_TOKEN placeholder -> proxy
 # substitution -> maven.pkg.github.com -> redirect to blob storage.

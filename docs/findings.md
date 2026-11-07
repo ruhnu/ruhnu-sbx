@@ -257,6 +257,42 @@ Two constraints found while doing this:
 - Mount `~/.m2/repository`, not `~/.m2`: the kit bakes `settings.xml` into
   `~/.m2/` and mounting the parent would hide it.
 
+## Measured: mounting `~/.claude/projects` preserves sessions, and hides nothing
+
+Claude's session transcripts live in `~/.claude/projects/<encoded-cwd>/*.jsonl`
+and are destroyed by `sbx rm`, taking with them anything worth resuming with
+`claude --resume`. Mounting a host directory over that one subdirectory keeps
+them, without exposing the rest of `~/.claude` in either direction:
+
+```bash
+sbx create --name ruhnu ./kit/ ... \
+  ~/.local/share/ruhnu-sbx/claude-projects:/home/agent/.claude/projects
+```
+
+The worry was that mounting a subdirectory would hide its siblings, the way
+mounting `~/.m2` would hide `settings.xml`. It does not — the mount lands on
+`projects/` alone. Verified 2026-11-07 after a fresh `create-sandbox.sh`:
+
+```
+drwxrwxr-x 3 agent agent 4096 projects         <- virtiofs, rw, writable by agent
+-rw------- 1 agent agent  551 .credentials.json  <- still there, VM-local
+-rw------- 1 agent agent  312 history.jsonl
+```
+
+So `/login` still writes its token inside the VM and nowhere else, and
+`CLAUDE.md` copied in afterwards stays put. `findmnt` reports
+`host[/home/jkusman/.local/share/ruhnu-sbx/claude-projects] virtiofs rw`, the
+mount point is writable by `agent` (uid 1000 on both sides), and a session
+recorded in the sandbox appeared on the host as
+`claude-projects/-home-agent-workspace/`.
+
+Transcripts are keyed by working directory, so they resume only from the same
+absolute path — fine while the repos stay at `/home/agent/workspace/...`.
+
+Unlike the Maven cache, this was not timed. Claude appends to the live
+transcript continuously; if virtiofs ever makes that felt, the fallback is a
+`lifecycle@1` hook restoring from a mounted archive at start.
+
 ## Base image
 
 There is no `docker/sandbox-templates:claude`. Tags are

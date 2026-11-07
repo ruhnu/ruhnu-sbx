@@ -169,11 +169,12 @@ run inside a sandbox. It creates the sandbox with the mounts below, copies your
 `~/.claude/CLAUDE.md` in, and runs the bootstrap. Equivalent to:
 
 ```bash
-mkdir -p ~/.m2/repository
+mkdir -p ~/.m2/repository ~/.local/share/ruhnu-sbx/claude-projects
 sbx create --name ruhnu ./kit/ \
   ~/workspace/cdoc2-ssh \
   ~/workspace/ruhnu-sbx:/home/agent/ruhnu-sbx \
-  ~/.m2/repository:/home/agent/.m2/repository
+  ~/.m2/repository:/home/agent/.m2/repository \
+  ~/.local/share/ruhnu-sbx/claude-projects:/home/agent/.claude/projects
 ssh ruhnu.sbx 'mkdir -p ~/.claude'
 scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
 ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
@@ -185,6 +186,7 @@ Giving:
 /home/agent/workspace/                 VM-local: cloned repos, OpenSpec store
 /home/agent/ruhnu-sbx/                 mounted: this repo
 /home/agent/.m2/repository/            mounted: the dependency cache
+/home/agent/.claude/projects/          mounted: Claude's session transcripts
 /home/<you>/workspace/cdoc2-ssh/       mounted: the GitLab repo, at its host path
 ```
 
@@ -196,6 +198,22 @@ MB of re-download every time the kit changes. Mounting it was measured at no
 cost for this project (15s VM-local vs 15s mounted, warm offline build); see
 `docs/findings.md`. Mount the `repository` subdirectory, not `~/.m2` — the kit
 bakes `settings.xml` into `~/.m2/` and mounting the parent would hide it.
+
+**`~/.claude/projects`**, so Claude's session transcripts survive `sbx rm` and
+`claude --resume` still finds them after a kit change. The host side is
+`~/.local/share/ruhnu-sbx/claude-projects`, a directory of its own — *not* the
+host's `~/.claude/projects`, which holds transcripts for every repo you have
+ever opened. Only this sandbox's own history crosses, and only outward. Set
+`RUHNU_CLAUDE_PROJECTS_DIR` to put it elsewhere — a second sandbox wanting its
+own history, say:
+
+```bash
+RUHNU_CLAUDE_PROJECTS_DIR=~/.local/share/ruhnu-sbx/claude-projects-two \
+  ./create-sandbox.sh ruhnu2
+```
+
+Transcripts are keyed by working directory, so they resume only from the same
+absolute path: that holds while the repos stay at `/home/agent/workspace/...`.
 
 **This repo**, at `/home/agent/ruhnu-sbx`, so its scripts and docs are available
 inside and editable from either side. Append `:ro` if you would rather the agent
@@ -276,17 +294,22 @@ scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
 
 Copied rather than mounted: sbx mounts directories, not single files.
 
-**`~/.claude` is deliberately not mounted.** It holds `.credentials.json` (a
-live OAuth token), `.claude.json` (every project you have opened, plus MCP
-config that often carries tokens) and `projects/` — full session transcripts
-for every repo you have ever worked in. Mounting it read-write would hand all
-of that to an agent running in auto mode, and would undo the credential
-isolation the rest of this setup is built on.
+**The host's `~/.claude` is deliberately not mounted.** It holds
+`.credentials.json` (a live OAuth token), `.claude.json` (every project you
+have opened, plus MCP config that often carries tokens) and `projects/` — full
+session transcripts for every repo you have ever worked in. Mounting it
+read-write would hand all of that to an agent running in auto mode, and would
+undo the credential isolation the rest of this setup is built on. The sandbox's
+own `~/.claude/projects` is a mount, but from a separate host directory holding
+nothing but this sandbox's transcripts; the rest of `~/.claude` stays VM-local,
+so `/login` writes its token inside the sandbox and nowhere else.
 
 Authentication does not need it: run `/login` inside the sandbox and the
 session token stays on the host.
 
-Re-copy after `sbx rm`; it survives `sbx stop`/`start`.
+Re-copy after `sbx rm`, and run `/login` again — the token is VM-local and goes
+with the sandbox, deliberately. Only `projects/` is mounted, so the transcripts
+come back on their own. Both survive `sbx stop`/`start`.
 
 ### Getting a shell
 

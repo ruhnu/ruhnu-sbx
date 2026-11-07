@@ -7,23 +7,16 @@ sandbox. They survive `sbx stop`/`start` and are destroyed by `sbx rm`, so a
 kit change loses the history — including anything worth resuming with
 `claude --resume`.
 
-Options, roughly in order of preference:
+**Done** — the first option works. `create-sandbox.sh` mounts
+`~/.local/share/ruhnu-sbx/claude-projects` at `/home/agent/.claude/projects`:
+a directory of its own, not the host's `~/.claude/projects`, so only this
+sandbox's transcripts cross and only outward. Verified 2026-11-07 on a fresh
+sandbox — the mount hides no siblings, `agent` can write it, and sessions land
+on the host. See `docs/findings.md`; `verify-kit.sh` rechecks it.
 
-- **Mount a host directory at `/home/agent/.claude/projects`.** Only this
-  sandbox's own transcripts would reach the host; nothing flows the other way,
-  unlike mounting all of `~/.claude` (see the README for why that is not done).
-  Needs checking: whether mounting a subdirectory of `~/.claude` hides
-  `CLAUDE.md` and `.credentials.json` the way mounting `~/.m2` would hide
-  `settings.xml` — it should not, since those are siblings, but verify.
-- **A `lifecycle@1` startup hook** that restores from a mounted archive, if a
-  direct mount turns out to interact badly with how Claude Code writes session
-  files.
-- **Accept the loss** and copy out on demand:
-  `ssh ruhnu.sbx 'tar cf - -C /home/agent .claude/projects' > sessions.tgz`
-
-Open question either way: session paths are keyed by working directory, so
-transcripts recorded in the sandbox resume only from the same absolute path.
-That holds while the repos stay at `/home/agent/workspace/...`.
+Still open: whether appending to a live `.jsonl` over virtiofs is ever felt in
+practice. Untimed. If it is, restore from a mounted archive with a
+`lifecycle@1` startup hook instead.
 
 ## Smaller items
 
