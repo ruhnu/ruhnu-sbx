@@ -41,10 +41,10 @@ STORE_DIR=ruhnu-openspec
 # and the data directory is a plain directory, so this is fine.
 STORE_PATH="$SRC/$STORE_DIR"
 
-# repo:branch. The cdoc2 forks all track `develop` — GitHub reports
-# cdoc2-auth's default branch as `master`, but that is stale: master sits at
-# 0.3.3 while cdoc2-lib expects 0.7.3. Clone develop explicitly rather than
-# trusting the default. `.github` is the org profile repo and uses `main`.
+# repo:branch. The cdoc2 forks are cloned on `develop`, the mirror of upstream
+# that topic branches start from (see .github/CONTRIBUTING.md). Their GitHub
+# default is the `ruhnu` integration branch, so name the branch explicitly.
+# `.github` is the org profile repo and uses `main`.
 # The OpenSpec store lives on `master`: openspec reads the checked-out branch.
 REPOS=(
     cdoc2-openapi:develop
@@ -83,7 +83,7 @@ if ! git config --get user.email > /dev/null 2>&1; then
         echo "== setting git identity from the environment"
         git config --global user.name "$GIT_USER_NAME"
         git config --global user.email "$GIT_USER_EMAIL"
-    else
+    elif [ ! -d "$STORE_PATH" ]; then
         echo "== no git identity; creating the store without git history"
         echo "   (set GIT_USER_NAME and GIT_USER_EMAIL to get a real store repo)"
         GIT_INIT_FLAG=(--no-init-git)
@@ -108,6 +108,27 @@ for r in "${OPENSPEC_REPOS[@]}"; do
     # these directories exist the `store:` declaration is silently ignored.
     rm -rf openspec/specs openspec/changes
     printf 'schema: spec-driven\nstore: %s\n' "$STORE_ID" > openspec/config.yaml
+done
+
+# The same four repos are forks of open-eid. Set each clone up for the branch
+# model in .github/CONTRIBUTING.md. Every step checks first, so re-running is
+# harmless.
+for r in "${OPENSPEC_REPOS[@]}"; do
+    cd "$SRC/$r"
+    echo "== setting up $r as an open-eid fork"
+    git remote get-url upstream > /dev/null 2>&1 \
+        || git remote add upstream "https://github.com/open-eid/$r"
+    # Topic branches start from upstream/develop, so it has to exist locally.
+    git fetch -q upstream || echo "   WARNING: could not fetch upstream for $r"
+    # The tooling written above. Excluded locally rather than in .gitignore,
+    # which would ride along into every upstream PR.
+    for p in /.claude/ /openspec/; do
+        grep -qxF "$p" .git/info/exclude 2> /dev/null || echo "$p" >> .git/info/exclude
+    done
+    # In a fork, gh targets the parent repository by default: a PR meant for
+    # the ruhnu branch would land on open-eid instead.
+    gh repo set-default "ruhnu/$r" \
+        || echo "   WARNING: could not set the gh default repo for $r"
 done
 
 # A multi-root workspace over everything in the data directory — the clones,

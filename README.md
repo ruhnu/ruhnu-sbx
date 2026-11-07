@@ -454,9 +454,16 @@ Produces, on both sides:
 ├── cdoc2-shares-server/
 ```
 
-The four cdoc2 forks track `develop`; `.github` tracks `main`. GitHub reports
-`cdoc2-auth`'s default branch as `master`, but that is stale — it sits at 0.3.3
-while cdoc2-lib expects 0.7.3 — so the script clones `develop` explicitly.
+The four cdoc2 forks are cloned on `develop`, the mirror of upstream that
+topic branches start from; their GitHub default is the `ruhnu` integration
+branch, so the script names `develop` explicitly. `.github` tracks `main`.
+
+Each fork is also set up for the branch model in
+[`.github/CONTRIBUTING.md`](https://github.com/ruhnu/.github/blob/main/CONTRIBUTING.md):
+an `upstream` remote pointing at open-eid (fetched, so `upstream/develop`
+exists), `/.claude/` and `/openspec/` in `.git/info/exclude` rather than
+`.gitignore`, and `gh repo set-default ruhnu/<repo>` so `gh pr create` does
+not target open-eid.
 
 `.github` is cloned but not wired to OpenSpec: it holds the org profile page
 and does not want `.claude/` skills committed into it.
