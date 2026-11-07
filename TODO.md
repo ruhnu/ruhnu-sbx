@@ -32,8 +32,6 @@ than leaving it as a closing note.
 
 - Drop the apt layer from the kit if the base's JDK 17/21/25 and Maven 3.9.12
   suffice — it adds ~33s to every kit build. Only `haveged` is clearly needed.
-- Push this repo so `bootstrap-ruhnu.sh` can stop warning about it and fresh
-  sandboxes are self-sufficient.
 - Confirm `sbx template save` syntax by running it; the README section is
   written from the docs.
 - Decide whether `ruhnu-sbx` should be wired to the OpenSpec store like the

@@ -32,7 +32,8 @@ fi
 
 # The store id is what repos reference (`store: ruhnu` in openspec/config.yaml)
 # and what the machine registry records. The directory name is independent of
-# it; this one can become github.com/ruhnu/ruhnu-openspec as-is.
+# it; this one is github.com/ruhnu/ruhnu-openspec, cloned below with the code
+# repos. A fresh store is created only if that clone fails.
 STORE_ID=ruhnu
 STORE_DIR=ruhnu-openspec
 # Beside the code repos rather than off in ~/openspec, so one VS Code
@@ -44,12 +45,14 @@ STORE_PATH="$SRC/$STORE_DIR"
 # cdoc2-auth's default branch as `master`, but that is stale: master sits at
 # 0.3.3 while cdoc2-lib expects 0.7.3. Clone develop explicitly rather than
 # trusting the default. `.github` is the org profile repo and uses `main`.
+# The OpenSpec store lives on `master`: openspec reads the checked-out branch.
 REPOS=(
     cdoc2-openapi:develop
     cdoc2-auth:develop
     cdoc2-java-ref-impl:develop
     cdoc2-shares-server:develop
     .github:main
+    "$STORE_DIR":master
 )
 
 # Only the code repos get OpenSpec wiring; .github holds the org profile page
@@ -65,8 +68,7 @@ for entry in "${REPOS[@]}"; do
         continue
     fi
     echo "== cloning $r ($branch)"
-    # Warn rather than abort: a repo may not be pushed yet, and the rest of
-    # the bootstrap is still worth running.
+    # Warn rather than abort: the rest of the bootstrap is still worth running.
     git clone --branch "$branch" "https://github.com/ruhnu/$r" "$SRC/$r" \
         || echo "   WARNING: could not clone $r; skipping"
 done

@@ -8,7 +8,7 @@ egress, and GitHub Packages credentials that never enter the VM.
 Each sandbox is a microVM with its own kernel, its own Docker daemon and its
 own filesystem. Claude can run in auto mode inside it without reaching the
 host, the internal network, or any credential beyond a read-only packages
-token.
+token and a push token limited to the ruhnu organization.
 
 Tested on Ubuntu 24.04 with sbx v0.51.0.
 
@@ -90,10 +90,8 @@ And a token is required even to download **public** packages, unlike Maven
 Central.
 
 `read:packages` alone can download packages and do nothing else — no repo
-read, no write, no acting as you. That narrowness is the entire mitigation for
-running an agent in auto mode, so resist widening it. If you later want `gh` to
-do more, scope a second token to one sandbox with `--sandbox` rather than
-widening the global one.
+read, no write, no acting as you. Keep it that way: pushing goes through the
+separate token in 2.2, not through this one.
 
 Keep it out of shell history and the process list — `--value`/`--token` expose
 it in both:
@@ -107,11 +105,58 @@ install -m 600 /dev/null ~/.config/gh-packages-read
 directory: `sbx secret` helpers and the files they read must stay outside
 writable sandbox mounts.
 
-### 2.2 Register it
+### 2.2 `GH_TOKEN`
+
+This is the token for `gh` and `git push`. The stock image sets `$GH_TOKEN` to
+the sentinel `gho_sbxproxymanaged000000000000000000000`, and the proxy
+substitutes the token registered as the built-in `github` secret on requests to
+`github.com` and `api.github.com`. It does so on **every** request, even one
+that carries no credentials, so `git push` over https needs no credential
+helper inside the sandbox.
+
+Because the proxy authenticates everything, this token decides what the agent
+can do on GitHub. Make it a **fine-grained** token owned by the ruhnu
+organization, so it cannot write to your personal account or any other org.
+Create it in your own settings, not the org's — github.com → Settings →
+Developer settings → Personal access tokens → **Fine-grained tokens**
+(<https://github.com/settings/personal-access-tokens/new>):
+
+- **Resource owner: `ruhnu`.** If ruhnu is missing from the list, an org owner
+  has to allow fine-grained tokens first: org Settings → Third-party Access →
+  Personal access tokens → Settings. If the org requires approval, the token
+  only works once an owner approves it under "Pending requests".
+- **Repository access:** all repositories, or only the ones the sandbox should
+  push to.
+- **Repository permissions:** Contents: **Read and write**; Metadata:
+  Read-only is added automatically. Nothing else, and no organization
+  permissions.
+- Set an expiry, and name it e.g. `sbx-ruhnu-push`.
+
+What it still allows: pushing to any branch of the selected repos, including
+force-push and branch deletion. Protect `master`, `main` and `develop` with a
+ruleset that blocks force-push and deletion — that is the limit on what an
+agent can do with this token.
+
+Left out on purpose:
+
+- **Pull requests.** Pull requests: Read and write would let the agent comment
+  on, close and approve other people's PRs in your name. Open PRs from the host
+  or the web UI; the permission can be added to the existing token later.
+- **Packages.** GitHub Packages does not accept fine-grained tokens, and a
+  classic `write:packages` token cannot be limited to one org. Publish Maven
+  packages and images from GitHub Actions with `GITHUB_TOKEN` instead, or from
+  a machine user that belongs only to ruhnu.
 
 ```bash
-# For gh and api.github.com (built-in service secret)
-sbx secret set github --command '/bin/cat /home/<you>/.config/gh-packages-read'
+install -m 600 /dev/null ~/.config/gh-ruhnu-push
+# paste the token into that file
+```
+
+### 2.3 Register them
+
+```bash
+# For gh, git push, github.com and api.github.com (built-in service secret)
+sbx secret set github --command '/bin/cat /home/<you>/.config/gh-ruhnu-push'
 
 # For Maven. The built-in github secret does NOT cover maven.pkg.github.com,
 # so bind an explicit custom secret to that host.
@@ -126,22 +171,37 @@ The second command prints a generated placeholder such as
 `set-custom` is marked experimental; it may move between sbx releases.
 
 Why two: the built-in `github` secret substitutes for `api.github.com` but
-returns 401 for `maven.pkg.github.com`. And because substitution is a literal
-string match on request headers, `kit/m2-settings.xml` sends
-`Authorization: Bearer ${env.MAVEN_GH_TOKEN}` via `<httpHeaders>` rather than
-Maven's default Basic auth, which would base64-encode the placeholder out of
-recognition. See `docs/findings.md`.
+returns 401 for `maven.pkg.github.com`, and the push token could not authorize
+Maven downloads anyway, because the registry accepts only classic tokens. And
+because substitution is a literal string match on request headers,
+`kit/m2-settings.xml` sends `Authorization: Bearer ${env.MAVEN_GH_TOKEN}` via
+`<httpHeaders>` rather than Maven's default Basic auth, which would
+base64-encode the placeholder out of recognition. See `docs/findings.md`.
 
-### 2.3 Claude
+### 2.4 Claude
 
 Run `/login` inside the sandbox. The session token stays on the host.
 
-### 2.4 Verify
+### 2.5 Verify
 
 ```bash
 sbx secret ls
 ssh ruhnu.sbx 'echo $GH_TOKEN; echo $MAVEN_GH_TOKEN'   # placeholders, not tokens
 ```
+
+Inside the sandbox, check that the push token reaches ruhnu and nothing else.
+The `git-receive-pack` endpoint answers 200 where you can push and 403 where
+you cannot:
+
+```bash
+probe() { curl -s -o /dev/null -w "$1: %{http_code}\n" \
+  "https://github.com/$1.git/info/refs?service=git-receive-pack"; }
+probe ruhnu/ruhnu-sbx          # 200
+probe <you>/<personal-repo>    # 403
+```
+
+`gh auth status` reports `Token scopes: none` for a fine-grained token. That is
+expected and does not mean it lacks permissions.
 
 ## 3. Egress policy
 
@@ -237,13 +297,14 @@ The bootstrap clones the four cdoc2 forks, `.github` and the OpenSpec store
 into it, skipping any that are already there — so it is safe to re-run, and
 safe to put repos there yourself first.
 
-Two you have to put there by hand, because the sandbox cannot fetch them:
+Two you have to put there by hand:
 
 - **`cdoc2-ssh`**, which lives on `gitlab.cyber.ee` over SSH. The sandbox has
   no key for it and internal hosts are not in the egress policy.
-- **`ruhnu-sbx`** — this repo — until it is pushed somewhere the sandbox can
-  reach. If you leave it outside the data directory, `create-sandbox.sh` mounts
-  it separately, also at its host path, and everything still works.
+- **`ruhnu-sbx`** — this repo. The bootstrap runs from it, so it has to exist
+  before the sandbox does: clone it on the host (see section 5). If you leave
+  it outside the data directory, `create-sandbox.sh` mounts it separately,
+  also at its host path, and everything still works.
 
 Anything else you copy in is picked up too: the workspace file lists every
 directory it finds, not a hardcoded set.
@@ -370,13 +431,18 @@ directly. One thing it cannot do: rebuild the image it is running in.
 `docker buildx build` is a host-side step, so changes under `kit/` still have
 to be applied from the host.
 
-Until the repo is pushed there is nothing to clone — the bootstrap warns and
-continues. Copy it into the data directory instead, host-side, with its
-history; no ssh needed, since that directory is the mount:
+The bootstrap does not clone this repo — it runs from it. Clone it into the
+data directory host-side first; no ssh needed, since that directory is the
+mount:
 
 ```bash
-cp -a ~/workspace/ruhnu-sbx ~/workspace/ruhnu-workspace/
+git clone https://github.com/ruhnu/ruhnu-sbx ~/workspace/ruhnu-workspace/ruhnu-sbx
 ```
+
+The OpenSpec store is cloned from `github.com/ruhnu/ruhnu-openspec` (branch
+`master`). Only if that clone fails does the bootstrap create a fresh, empty
+store with the same id — which then has no history in common with the GitHub
+one.
 
 Produces, on both sides:
 

@@ -97,8 +97,10 @@ capabilities:
 
 # Credentials are NOT configured here. Register them on the host:
 #
-#   # Anthropic / gh / api.github.com — built-in service secret
-#   sbx secret set github --command '/bin/cat /home/jkusman/.config/gh-packages-read'
+#   # gh / git push / github.com / api.github.com — built-in service secret.
+#   # A fine-grained PAT owned by the ruhnu org, Contents read/write only, so
+#   # it cannot write outside ruhnu. See README section 2.2.
+#   sbx secret set github --command '/bin/cat /home/jkusman/.config/gh-ruhnu-push'
 #
 #   # Maven: the built-in github secret does NOT cover maven.pkg.github.com
 #   # (measured: 401 for its sentinel, Basic and Bearer alike). An explicit
@@ -106,6 +108,6 @@ capabilities:
 #   printf '%s' "$(cat ~/.config/gh-packages-read)" | sbx secret set-custom \
 #     --host maven.pkg.github.com --env MAVEN_GH_TOKEN --value-stdin
 #
-# The PAT must be a *classic* token with read:packages only — GitHub Packages
+# The Maven PAT must be a *classic* token with read:packages only — GitHub Packages
 # rejects fine-grained tokens, and requires a token even for public packages.
 # See docs/findings.md and m2-settings.xml.
