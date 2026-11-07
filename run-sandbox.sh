@@ -4,17 +4,22 @@
 #   ./run-sandbox.sh                 # start, open VS Code
 #   ./run-sandbox.sh --no-vscode     # start, drop into a shell instead
 #   ./run-sandbox.sh myname          # a sandbox other than 'ruhnu'
+#   ./run-sandbox.sh --data-dir PATH # a data directory other than the default
+#                                    # (or set RUHNU_DATA_DIR)
 set -euo pipefail
 
 NAME=ruhnu
 VSCODE=1
+DATA_DIR="${RUHNU_DATA_DIR:-$HOME/workspace/ruhnu-workspace}"
 
-for arg in "$@"; do
-    case "$arg" in
-        --no-vscode) VSCODE=0 ;;
-        -h|--help) sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
-        -*) echo "unknown option: $arg" >&2; exit 1 ;;
-        *) NAME="$arg" ;;
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-vscode) VSCODE=0; shift ;;
+        --data-dir) DATA_DIR="${2:?--data-dir needs a path}"; shift 2 ;;
+        --data-dir=*) DATA_DIR="${1#*=}"; shift ;;
+        -h|--help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -*) echo "unknown option: $1" >&2; exit 1 ;;
+        *) NAME="$1"; shift ;;
     esac
 done
 
@@ -28,7 +33,9 @@ fi
 echo "== starting $NAME"
 sbx start "$NAME" > /dev/null 2>&1 || true
 
-WS=/home/agent/workspace/ruhnu.code-workspace
+# The data directory mounts at its host path, so this one path addresses the
+# workspace file on the host and inside the sandbox alike.
+WS="$DATA_DIR/ruhnu.code-workspace"
 
 if [ "$VSCODE" = "0" ]; then
     exec ssh "$NAME.sbx"
@@ -78,6 +85,6 @@ if ssh "$NAME.sbx" "test -f $WS" 2> /dev/null; then
     code_detached --file-uri "vscode-remote://ssh-remote+$NAME.sbx$WS"
 else
     echo "note: $WS missing; run in-sandbox/bootstrap-ruhnu.sh in the sandbox" >&2
-    echo "== opening /home/agent/workspace instead"
-    code_detached --folder-uri "vscode-remote://ssh-remote+$NAME.sbx/home/agent/workspace"
+    echo "== opening $DATA_DIR instead"
+    code_detached --folder-uri "vscode-remote://ssh-remote+$NAME.sbx$DATA_DIR"
 fi

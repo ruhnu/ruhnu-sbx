@@ -169,29 +169,45 @@ run inside a sandbox. It creates the sandbox with the mounts below, copies your
 `~/.claude/CLAUDE.md` in, and runs the bootstrap. Equivalent to:
 
 ```bash
-mkdir -p ~/.m2/repository ~/.local/share/ruhnu-sbx/claude-projects
+DATA=~/workspace/ruhnu-workspace
+mkdir -p "$DATA" ~/.m2/repository ~/.local/share/ruhnu-sbx/claude-projects
 sbx create --name ruhnu ./kit/ \
-  ~/workspace/cdoc2-ssh \
-  ~/workspace/ruhnu-sbx:/home/agent/ruhnu-sbx \
+  "$DATA" \
   ~/.m2/repository:/home/agent/.m2/repository \
   ~/.local/share/ruhnu-sbx/claude-projects:/home/agent/.claude/projects
 ssh ruhnu.sbx 'mkdir -p ~/.claude'
 scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
-ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
+ssh ruhnu.sbx "RUHNU_DATA_DIR=$DATA bash $DATA/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh"
 ```
 
 Giving:
 
 ```
-/home/agent/workspace/                 VM-local: cloned repos, OpenSpec store
-/home/agent/ruhnu-sbx/                 mounted: this repo
-/home/agent/.m2/repository/            mounted: the dependency cache
-/home/agent/.claude/projects/          mounted: Claude's session transcripts
-/home/<you>/workspace/cdoc2-ssh/       mounted: the GitLab repo, at its host path
+/home/<you>/workspace/ruhnu-workspace/  mounted, at its host path:
+    cdoc2-openapi/  cdoc2-auth/  cdoc2-java-ref-impl/  cdoc2-shares-server/
+    .github/  ruhnu-openspec/        cloned by the bootstrap
+    cdoc2-ssh/  ruhnu-sbx/           copied in by you
+    ruhnu.code-workspace             written by the bootstrap
+/home/agent/.m2/repository/             mounted: the dependency cache
+/home/agent/.claude/projects/           mounted: Claude's session transcripts
 ```
 
-The cloned repos stay on the VM's own ext4 — native build speed. The rest is
-mounted from the host, deliberately:
+**One directory holds everything you work on**, mounted at its host path, so
+every repo has a single absolute path valid on both sides. `ssh`, the VS Code
+workspace file, stack traces and Claude's cwd-keyed transcripts all agree, and
+nothing is lost to `sbx rm`. Choose it with `--data-dir` or `RUHNU_DATA_DIR`;
+the default is `~/workspace/ruhnu-workspace`.
+
+This is only tenable because virtiofs costs nothing measurable here — see
+*Measured: mounting ~/.m2 over virtiofs costs nothing here* in `docs/findings.md`.
+The caveat in that section applies: a *cold* Maven resolve, which writes
+thousands of small files, was never measured. If a build ever feels slow, that
+is the first thing to suspect.
+
+It also means an agent in auto mode is writing to host-resident repos with no
+VM boundary behind them. They have remotes; commit often.
+
+The two remaining mounts:
 
 **`~/.m2/repository`**, so the dependency cache survives `sbx rm`. That is 293
 MB of re-download every time the kit changes. Mounting it was measured at no
@@ -212,28 +228,37 @@ RUHNU_CLAUDE_PROJECTS_DIR=~/.local/share/ruhnu-sbx/claude-projects-two \
   ./create-sandbox.sh ruhnu2
 ```
 
-Transcripts are keyed by working directory, so they resume only from the same
-absolute path: that holds while the repos stay at `/home/agent/workspace/...`.
+Transcripts are keyed by working directory. Now that the repos sit at one path
+on both sides, a transcript recorded in the sandbox also resumes on the host.
 
-**This repo**, at `/home/agent/ruhnu-sbx`, so its scripts and docs are available
-inside and editable from either side. Append `:ro` if you would rather the agent
-could not write to your host checkout — at the cost of it not being able to fix
-the scripts in place.
+### What goes in the data directory
 
-**`cdoc2-ssh`**, which lives on `gitlab.cyber.ee` over SSH. The sandbox has no
-key for it and internal hosts are not in the egress policy, so mounting is the
-only way it gets in — the bootstrap cannot clone it. It takes the first slot
-because the *primary* workspace must mount at its host path: `HOST:TARGET` is
-rejected for it and accepted only for the paths after. That is also why it,
-rather than the code, is what you land in on `ssh ruhnu.sbx`; `cd ~/workspace`
-gets you to the repos.
+The bootstrap clones the four cdoc2 forks, `.github` and the OpenSpec store
+into it, skipping any that are already there — so it is safe to re-run, and
+safe to put repos there yourself first.
+
+Two you have to put there by hand, because the sandbox cannot fetch them:
+
+- **`cdoc2-ssh`**, which lives on `gitlab.cyber.ee` over SSH. The sandbox has
+  no key for it and internal hosts are not in the egress policy.
+- **`ruhnu-sbx`** — this repo — until it is pushed somewhere the sandbox can
+  reach. If you leave it outside the data directory, `create-sandbox.sh` mounts
+  it separately, also at its host path, and everything still works.
+
+Anything else you copy in is picked up too: the workspace file lists every
+directory it finds, not a hardcoded set.
+
+The data directory takes the first positional slot in `sbx create`, because the
+*primary* workspace must mount at its host path — `HOST:TARGET` is rejected for
+it and accepted only for the paths after. That is also what you land in on
+`ssh ruhnu.sbx`.
 
 The sandbox is capped at 8 CPU / 8 GiB by `resources@1`; a stock sandbox
 otherwise takes the whole machine. Override per sandbox with `--cpus` /
 `--memory`.
 
 ```bash
-ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/verify-kit.sh'
+ssh ruhnu.sbx "bash $DATA/ruhnu-sbx/in-sandbox/verify-kit.sh"
 ```
 
 The last check resolves a real cdoc2 artifact from GitHub Packages, exercising
@@ -315,7 +340,7 @@ come back on their own. Both survive `sbx stop`/`start`.
 
 ```bash
 ssh ruhnu.sbx                                    # interactive shell
-ssh ruhnu.sbx 'cd ~/workspace/cdoc2-lib && ls'   # one-off command
+ssh ruhnu.sbx 'cd $DATA/cdoc2-lib && ls'         # one-off command
 sbx run --name ruhnu                             # attach the agent, not a shell
 sbx ls                                           # is it running?
 sbx start ruhnu                                  # if stopped
@@ -328,19 +353,17 @@ ready. Connect first and then paste, or send the whole thing as
 
 ## 5. Clone the repos and the OpenSpec store
 
-On a fresh sandbox, copy the script in and run it:
+`create-sandbox.sh` runs this for you. By hand, from the data directory, which
+has the same path on both sides:
 
 ```bash
-scp in-sandbox/bootstrap-ruhnu.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
+DATA=~/workspace/ruhnu-workspace
+ssh ruhnu.sbx "RUHNU_DATA_DIR=$DATA bash $DATA/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh"
+ssh ruhnu.sbx "bash $DATA/ruhnu-sbx/in-sandbox/verify-kit.sh"
 ```
 
-It clones **this repo** into the sandbox as well, so afterwards the scripts and
-docs are there and run from the checkout — no copying:
-
-```bash
-ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
-ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/verify-kit.sh'
-```
+Re-runnable: repos already cloned are skipped, so it is also how you add the
+ones that are missing after copying something in by hand.
 
 Claude inside the sandbox can then read `docs/` and run or edit these scripts
 directly. One thing it cannot do: rebuild the image it is running in.
@@ -348,16 +371,17 @@ directly. One thing it cannot do: rebuild the image it is running in.
 to be applied from the host.
 
 Until the repo is pushed there is nothing to clone — the bootstrap warns and
-continues. Copy it in with its history instead:
+continues. Copy it into the data directory instead, host-side, with its
+history; no ssh needed, since that directory is the mount:
 
 ```bash
-cd ~/workspace && tar cf - ruhnu-sbx | ssh ruhnu.sbx 'tar xf - -C /home/agent/workspace'
+cp -a ~/workspace/ruhnu-sbx ~/workspace/ruhnu-workspace/
 ```
 
-Produces, inside the sandbox:
+Produces, on both sides:
 
 ```
-~/workspace/
+<data dir>/
 ├── cdoc2-openapi/        ├── .github/           <- org profile page
 ├── cdoc2-auth/           ├── ruhnu-sbx/         <- this repo
 ├── cdoc2-java-ref-impl/  └── ruhnu-openspec/    <- OpenSpec store, id `ruhnu`
@@ -417,6 +441,7 @@ the sandbox discards these locally built artifacts along with everything else.
 ./run-sandbox.sh                 # start the sandbox, open VS Code on it
 ./run-sandbox.sh --no-vscode     # start it and drop into a shell instead
 ./run-sandbox.sh myname          # a sandbox other than 'ruhnu'
+./run-sandbox.sh --data-dir PATH # a data directory other than the default
 ```
 
 Host-side, like `create-sandbox.sh`. It starts the sandbox if it is stopped,
@@ -424,23 +449,25 @@ then opens the multi-root workspace — all the repos plus the OpenSpec store in
 one window. By hand:
 
 ```bash
-code --file-uri "vscode-remote://ssh-remote+ruhnu.sbx/home/agent/workspace/ruhnu.code-workspace"
+code --file-uri "vscode-remote://ssh-remote+ruhnu.sbx$DATA/ruhnu.code-workspace"
 ```
 
-Note **`--file-uri`**, not `--folder-uri`: a `.code-workspace` is a file.
-Pointing `--folder-uri` at a single repo opens only that repo, and pointing it
-at `~/workspace` opens one root containing everything, which works but gives
-the Java tooling a worse view of the projects.
+with `DATA` as above. Note **`--file-uri`**, not `--folder-uri`: a
+`.code-workspace` is a file. Pointing `--folder-uri` at a single repo opens
+only that repo, and pointing it at the data directory opens one root containing
+everything, which works but gives the Java tooling a worse view of the
+projects.
 
 A single repo, when that is what you want:
 
 ```bash
-code --folder-uri "vscode-remote://ssh-remote+ruhnu.sbx/home/agent/workspace/cdoc2-java-ref-impl"
+code --folder-uri "vscode-remote://ssh-remote+ruhnu.sbx$DATA/cdoc2-java-ref-impl"
 ```
 
 Needs the Remote-SSH extension on the host; the first connect installs the VS
-Code server inside the sandbox. The editor runs in the sandbox, so it reads
-VM-local files — which is why nothing needs mounting from the host.
+Code server inside the sandbox. The editor runs in the sandbox, reading the
+repos through the data-directory mount — the same files your host editor would
+open, at the same paths.
 
 The **Claude Code extension is baked into the kit**, so it is present in the
 sandbox from the first connect rather than being fetched from the marketplace.

@@ -1,9 +1,13 @@
 #!/bin/bash
 # Create the ruhnu sandbox, seed it, and clone the repos. Run on the HOST:
 #
-#   ./create-sandbox.sh [name]
+#   ./create-sandbox.sh [name] [--data-dir PATH]
 #
 # Environment:
+#   RUHNU_DATA_DIR             host directory holding everything you work on:
+#                              the cloned repos, the OpenSpec store, cdoc2-ssh,
+#                              this repo, the VS Code workspace file
+#                              (default: ~/workspace/ruhnu-workspace)
 #   RUHNU_CLAUDE_PROJECTS_DIR  host directory mounted at ~/.claude/projects,
 #                              holding Claude's session transcripts
 #                              (default: ~/.local/share/ruhnu-sbx/claude-projects)
@@ -12,14 +16,26 @@
 # it copies files the sandbox cannot reach by itself.
 set -euo pipefail
 
-NAME="${1:-ruhnu}"
+NAME=ruhnu
+DATA_DIR="${RUHNU_DATA_DIR:-$HOME/workspace/ruhnu-workspace}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --data-dir) DATA_DIR="${2:?--data-dir needs a path}"; shift 2 ;;
+        --data-dir=*) DATA_DIR="${1#*=}"; shift ;;
+        -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -*) echo "unknown option: $1" >&2; exit 1 ;;
+        *) NAME="$1"; shift ;;
+    esac
+done
+
+# Absolute, because it is mounted at its host path and both sides must agree
+# on it. `mkdir -p` first so realpath has something to resolve.
+mkdir -p "$DATA_DIR"
+DATA_DIR="$(cd "$DATA_DIR" && pwd)"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Mounted from the host. The primary workspace (first, no target) must mount at
-# its host path, so cdoc2-ssh takes that slot: it lives on gitlab.cyber.ee over
-# SSH, which the sandbox can reach neither by key nor by egress policy, so
-# mounting is the only way in.
-DATA_DIR="$HOME/workspace/cdoc2-ssh"
 M2_DIR="$HOME/.m2/repository"
 
 # Claude's session transcripts, so `claude --resume` still works after an
@@ -31,17 +47,27 @@ SESSIONS_DIR="${RUHNU_CLAUDE_PROJECTS_DIR:-$HOME/.local/share/ruhnu-sbx/claude-p
 
 mkdir -p "$M2_DIR" "$SESSIONS_DIR"
 
-mounts=()
-if [ -d "$DATA_DIR" ]; then
-    mounts+=("$DATA_DIR")
-else
-    echo "note: $DATA_DIR not found; creating without it" >&2
-fi
-mounts+=("$REPO_DIR:/home/agent/ruhnu-sbx")
+# The data directory takes the primary slot — first, and with no target. The
+# primary workspace is rejected with HOST:TARGET and mounts at its host path,
+# which is what we want anyway: one absolute path for every repo on both sides,
+# so ssh, the workspace file, stack traces and Claude's cwd-keyed transcripts
+# all agree. Everything else that used to be mounted separately (this repo,
+# cdoc2-ssh) is a subdirectory of it now.
+mounts=("$DATA_DIR")
+
+# Unless this repo lives outside the data directory, in which case it still
+# needs a mount of its own — also at its host path, so the bootstrap is at the
+# same place on both sides.
+case "$REPO_DIR/" in
+    "$DATA_DIR"/*) ;;
+    *) mounts+=("$REPO_DIR") ;;
+esac
+
 mounts+=("$M2_DIR:/home/agent/.m2/repository")
 mounts+=("$SESSIONS_DIR:/home/agent/.claude/projects")
 
 echo "== creating sandbox '$NAME'"
+echo "   data dir: $DATA_DIR"
 sbx create --name "$NAME" "$REPO_DIR/kit/" "${mounts[@]}"
 
 # The host's ~/.claude is deliberately NOT mounted: it holds a live OAuth
@@ -66,14 +92,17 @@ else
 fi
 
 echo "== bootstrapping repos and the OpenSpec store"
-ssh "$NAME.sbx" 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
+# Both paths are host paths, valid unchanged inside the sandbox because both
+# directories mount where they already live.
+ssh "$NAME.sbx" "RUHNU_DATA_DIR='$DATA_DIR' bash '$REPO_DIR/in-sandbox/bootstrap-ruhnu.sh'"
 
 cat <<EOF
 
 Sandbox '$NAME' ready.
 
   shell:   ssh $NAME.sbx
-  vscode:  code --file-uri "vscode-remote://ssh-remote+$NAME.sbx/home/agent/workspace/ruhnu.code-workspace"
+  data:    $DATA_DIR (same path on both sides)
+  vscode:  ./run-sandbox.sh $NAME
 
 Run /login inside the sandbox the first time.
 EOF

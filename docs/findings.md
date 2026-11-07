@@ -257,6 +257,48 @@ Two constraints found while doing this:
 - Mount `~/.m2/repository`, not `~/.m2`: the kit bakes `settings.xml` into
   `~/.m2/` and mounting the parent would hide it.
 
+## Measured: the repos themselves cost ~5% on virtiofs
+
+Mounting `~/.m2` was cheap, so the whole working tree moved onto a host-mounted
+data directory. This is what that costs. Same sandbox, same `~/.m2` (mounted in
+both arms), `cdoc2-java-ref-impl`, arms alternating so drift hits both;
+`in-sandbox/bench-fs.sh` reproduces it.
+
+Warm offline `clean install -DskipTests`:
+
+| source tree on | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| virtiofs (data dir) | 15.30s | 15.88s | 15.28s |
+| ext4 (VM overlay) | 14.52s | 14.83s | 14.96s |
+
+About 0.8s, or 5%. Consistent in direction, negligible in size — the build is
+CPU-bound, as the `~/.m2` measurement found.
+
+Metadata operations are where virtiofs is genuinely slower. Copying the
+dependency cache (308 MB, 5157 files) onto each filesystem, then traversing and
+deleting it:
+
+| operation | virtiofs | ext4 | ratio |
+|---|---|---|---|
+| copy in | 2.55s | 1.56s | 1.6x |
+| stat every file | 0.161s | 0.033s | 4.9x |
+| delete | 0.341s | 0.106s | 3.2x |
+
+So the 3-5x penalty on per-file operations is real, and at this scale it is
+still milliseconds: ~130ms extra to stat 5000 files. `git status` on the repo
+was 7-15ms either way, which is noise. A cold resolve writing a few thousand
+artifacts should cost on the order of a second extra, not the ~90x seen on a
+pnpm monorepo over virtiofs elsewhere.
+
+Caveats: nothing dropped the page cache, so the traversal ran warm in both
+arms; and the first attempt at a cold-resolve arm failed in *both* arms —
+building against an empty local repository cannot resolve `cdoc2-openapi` and
+`cdoc2-auth`, which is a build-order fact about the repos, not a filesystem
+result.
+
+Conclusion: keep the working tree in the data directory. The 5% buys one path
+per repo on both sides, and survival across `sbx rm`.
+
 ## Measured: mounting `~/.claude/projects` preserves sessions, and hides nothing
 
 Claude's session transcripts live in `~/.claude/projects/<encoded-cwd>/*.jsonl`
@@ -287,7 +329,9 @@ recorded in the sandbox appeared on the host as
 `claude-projects/-home-agent-workspace/`.
 
 Transcripts are keyed by working directory, so they resume only from the same
-absolute path — fine while the repos stay at `/home/agent/workspace/...`.
+absolute path. Since the repos live in the data directory, which mounts at its
+host path, that path is the same on both sides — a transcript recorded in the
+sandbox resumes on the host too.
 
 Unlike the Maven cache, this was not timed. Claude appends to the live
 transcript continuously; if virtiofs ever makes that felt, the fallback is a

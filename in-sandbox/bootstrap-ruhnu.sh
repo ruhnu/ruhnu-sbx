@@ -2,18 +2,33 @@
 # Clone the ruhnu cdoc2 forks into a sandbox and wire them to a shared OpenSpec
 # store. Run INSIDE the sandbox:
 #
-#   ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
+#   ssh ruhnu.sbx 'RUHNU_DATA_DIR=/home/you/workspace/ruhnu-workspace \
+#       bash /home/you/workspace/ruhnu-workspace/ruhnu-sbx/in-sandbox/bootstrap-ruhnu.sh'
 #
-# or, before this repo is mounted or cloned in:
-#   scp in-sandbox/bootstrap-ruhnu.sh ruhnu.sbx:/tmp/ && ssh ruhnu.sbx 'bash /tmp/bootstrap-ruhnu.sh'
+# Everything lands in the data directory, which is mounted from the host at its
+# host path — so these are host paths too, and the clones survive `sbx rm`.
+# Re-runnable: repos that are already cloned are left alone.
 #
-# Clones land on the VM's own ext4, not a virtiofs mount, so builds run at
-# native speed. They live in the 20 GB overlay and are lost on `sbx rm`.
+# virtiofs rather than the VM's ext4, which costs nothing measurable for a warm
+# Maven build (docs/findings.md); a cold resolve was not measured.
 set -euo pipefail
 
-# ~/workspace mirrors the host layout, and is the image's WORKDIR, so `ssh
-# ruhnu.sbx` lands next to the repos.
-SRC="$HOME/workspace"
+# Passed in by create-sandbox.sh. Falls back to the sole mounted candidate, so
+# running this by hand needs no arguments in the common case.
+SRC="${RUHNU_DATA_DIR:-${1:-}}"
+if [ -z "$SRC" ]; then
+    candidates=(/home/*/workspace/ruhnu-workspace)
+    if [ "${#candidates[@]}" -eq 1 ] && [ -d "${candidates[0]}" ]; then
+        SRC="${candidates[0]}"
+    else
+        echo "error: set RUHNU_DATA_DIR (or pass the data directory as \$1)" >&2
+        exit 1
+    fi
+fi
+if [ ! -d "$SRC" ]; then
+    echo "error: data directory $SRC is not mounted in this sandbox" >&2
+    exit 1
+fi
 
 # The store id is what repos reference (`store: ruhnu` in openspec/config.yaml)
 # and what the machine registry records. The directory name is independent of
@@ -22,7 +37,7 @@ STORE_ID=ruhnu
 STORE_DIR=ruhnu-openspec
 # Beside the code repos rather than off in ~/openspec, so one VS Code
 # multi-root window covers code and specs. It must not be *inside* a git repo,
-# and ~/workspace is a plain directory, so this is fine.
+# and the data directory is a plain directory, so this is fine.
 STORE_PATH="$SRC/$STORE_DIR"
 
 # repo:branch. The cdoc2 forks all track `develop` — GitHub reports
@@ -35,18 +50,6 @@ REPOS=(
     cdoc2-java-ref-impl:develop
     cdoc2-shares-server:develop
     .github:main
-)
-
-# Directories mounted from the host rather than cloned, added to the VS Code
-# workspace by absolute path if they are present. ruhnu-sbx is mounted so that
-# edits to the kit and these scripts reach the host; cdoc2-ssh lives on
-# gitlab.cyber.ee, which the sandbox can reach neither by key nor by policy,
-# so mounting is the only way in.
-# Globs, because the primary workspace mounts at its host path and so carries
-# the host user's name, which this script should not hardcode.
-MOUNT_GLOBS=(
-    /home/agent/ruhnu-sbx
-    /home/*/workspace/cdoc2-ssh
 )
 
 # Only the code repos get OpenSpec wiring; .github holds the org profile page
@@ -105,23 +108,21 @@ for r in "${OPENSPEC_REPOS[@]}"; do
     printf 'schema: spec-driven\nstore: %s\n' "$STORE_ID" > openspec/config.yaml
 done
 
-# A multi-root workspace over every repo plus the store, so one VS Code window
-# covers the lot. It lives inside the sandbox because that is where the VS Code
-# server reads it from; opening it needs --file-uri, not --folder-uri.
+# A multi-root workspace over everything in the data directory — the clones,
+# the store, cdoc2-ssh, this repo — so one VS Code window covers the lot. It
+# sits in the data directory beside them, which is both a host path and the
+# path the VS Code server reads it from. Opening it needs --file-uri, not
+# --folder-uri.
 WS_FILE="$SRC/ruhnu.code-workspace"
 echo "== writing $WS_FILE"
 
-# Cloned repos and the store are relative to the workspace file; mounted
-# directories live outside $SRC and need absolute paths.
+# Whatever is actually there, rather than a hardcoded list: you may have copied
+# in repos this script knows nothing about. Relative paths, so the file is
+# valid from either side. Hidden directories are skipped.
 ws_paths=()
-for entry in "${REPOS[@]}"; do
-    ws_paths+=("${entry%%:*}")
-done
-ws_paths+=("$STORE_DIR")
-for glob in "${MOUNT_GLOBS[@]}"; do
-    for d in $glob; do
-        [ -d "$d" ] && ws_paths+=("$d")
-    done
+for d in "$SRC"/*/; do
+    [ -d "$d" ] || continue
+    ws_paths+=("$(basename "$d")")
 done
 
 {

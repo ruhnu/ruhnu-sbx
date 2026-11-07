@@ -1,6 +1,10 @@
 #!/bin/bash
 # Run INSIDE a sandbox built from kit/claude-sbx.yaml:
-#   ssh ruhnu.sbx 'bash /home/agent/ruhnu-sbx/in-sandbox/verify-kit.sh'
+#   DATA=~/workspace/ruhnu-workspace
+#   ssh ruhnu.sbx "bash $DATA/ruhnu-sbx/in-sandbox/verify-kit.sh"
+#
+# A host path, valid unchanged inside the sandbox: the data directory mounts
+# where it already lives. Do not write ~ here — that is /home/agent inside.
 #
 # Checks the toolchain, the credential placeholder, and whether Maven can
 # actually resolve a cdoc2 artifact from GitHub Packages through the proxy.

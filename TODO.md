@@ -18,6 +18,16 @@ Still open: whether appending to a live `.jsonl` over virtiofs is ever felt in
 practice. Untimed. If it is, restore from a mounted archive with a
 `lifecycle@1` startup hook instead.
 
+## Confirm the build order is mandatory, not advisory
+
+`bootstrap-ruhnu.sh` ends by saying to `mvn install` `cdoc2-openapi` and
+`cdoc2-auth` before the rest. Benchmarking turned that into a hard failure:
+a build against an empty local repository cannot resolve either, in the
+sandbox or out of it. Either the fork artifacts are not published to the ruhnu
+GitHub Packages org, or the versions the poms want are not there. Check which,
+and if they genuinely have to be built locally, say so in the README rather
+than leaving it as a closing note.
+
 ## Smaller items
 
 - Drop the apt layer from the kit if the base's JDK 17/21/25 and Maven 3.9.12
