@@ -93,6 +93,70 @@ overlay   overlay    20G   /                          <- everything else
 - Files the agent writes into the mounted workspace show as `agent:agent`
   inside. Host-side ownership not yet confirmed (host UID is also 1000).
 
+## Mounts are fixed at sandbox creation, not image build
+
+The core claim is measured (see *Measured* below). The rest is documented.
+Sources: `sbx run --help` captured 2026-11-09 from sbx
+**v0.51.0** (`7d55286`), the version measured above, and Collabnix, *Default Security Posture of Docker
+Sandboxes*, which follows the Docker docs page of the same name.
+
+Three stages, each fixing something different:
+
+| Stage | Command | Fixes |
+|---|---|---|
+| build | `docker buildx build -f kit/claude-sbx.yaml …` | image contents, kit capabilities |
+| create | `sbx create` or a first `sbx run` | **mounts**, `--clone`, `--skills`, `--static-mcp`, `--mount`, ports |
+| attach | `sbx run --name`, `sbx start`, `ssh <name>.sbx` | nothing about mounts |
+
+`sbx run` is "run an agent in a sandbox, creating the sandbox if it does not
+already exist", so the `sbx run claude . /path:ro` examples work only because
+that run creates the sandbox. When you re-attach, the settings are "read from
+its spec". `--mount`, `--skills` and `--clone` each say they can be used only
+at creation, and the article says "Existing sandboxes keep their mounts until
+you recreate them."
+
+**Measured 2026-11-09, v0.51.0.** On re-attach, extra paths are refused
+rather than ignored:
+
+```
+$ sbx create --name mnt-test shell /tmp/a
+$ sbx run -d --name mnt-test shell /tmp/b
+  error: sandbox 'mnt-test' already exists and can't be given new workspaces
+```
+
+The agent or kit positional is required even with `--name` if you pass any
+path. Without it the first path is taken as the kit:
+`sbx run --name ruhnu /tmp/x` fails with `kit "/tmp/x": … spec.yaml (or
+spec.yml) is required`, so it never gets as far as mounting anything.
+
+So changing a mount means `sbx rm` and create, not a rebuild. Here that is
+cheap: the repos, `~/.m2/repository` and `~/.claude/projects` are all host
+mounts and survive `sbx rm`.
+
+Mount syntax, from the help, is `PATH[:TARGET][:ro]`:
+
+- `TARGET` is absolute inside the sandbox. Omit it to mount at the host path.
+  The primary workspace must omit it (see the `~/.m2` section below).
+- `PATH:TARGET:ro` is documented.
+- **A `:ro` argument may name a single file.** That keeps one path out of
+  reach inside an otherwise writable workspace. Read-write mounts are still
+  directories only, so `CLAUDE.md` is still copied in.
+- `--mount HOST:SANDBOX_PATH` is a separate thing. It binds to a path the kit
+  declares with `host-mount@1`, at creation only. This kit does not use it.
+
+Workspace options not used here:
+
+- **No path** to `sbx create` gives a mountless sandbox. The agent works in
+  `/home/agent/workspace`, and `sbx rm` deletes it.
+- **`--clone`** mounts the repo read-only. The agent works on a private clone
+  in the VM, and its commits come back through a `sandbox-<name>` git remote on
+  the host. That would replace the read-write data directory, at the cost of
+  one path per repo on both sides.
+- **`--skills`**: by default the sandbox mounts a shared skills store
+  read-only (e.g. over `~/.claude/skills`). `readwrite` lets one sandbox change
+  what every other sandbox loads, and `off` leaves the store out. It is fixed
+  at creation.
+
 ## Egress under the Balanced preset
 
 `403` is the gateway proxy denying; anything else means the host was reached.
@@ -336,6 +400,54 @@ sandbox resumes on the host too.
 Unlike the Maven cache, this was not timed. Claude appends to the live
 transcript continuously; if virtiofs ever makes that felt, the fallback is a
 `lifecycle@1` hook restoring from a mounted archive at start.
+
+## Measured: the cdoc2-shares-server images build inside the sandbox
+
+The in-sandbox engine (Docker 29.9.2) builds both images that
+`cdoc2-shares-server`'s README describes, with no policy change. Verified
+2026-11-07 from the repo root, following the README:
+
+```bash
+mvn clean install -Dmaven.test.skip=true
+./build-images.sh
+```
+
+| Image | Built by | Size |
+|---|---|---|
+| `ghcr.io/open-eid/cdoc2-shares-server:0.8.3` (+ `latest`) | Spring Boot buildpacks, `mvn spring-boot:build-image` | 670 MB |
+| `ghcr.io/open-eid/cdoc2-shares-server-liquibase:0.8.3` (+ `latest`) | `docker build` from `liquibase/liquibase:4.29.2` | 713 MB |
+
+What the build reached, all allowed under the kit's policy:
+
+- **Docker Hub:** the Paketo builder `paketobuildpacks/builder-noble-java-tiny`
+  (1.25 GB), its run image `ubuntu-noble-run-tiny`, and the Liquibase base
+  image.
+- **GitHub release downloads, from inside the buildpack containers:** BellSoft
+  Liberica JRE 21 (`github.com/bell-sw/Liberica/releases/...`) and `syft`
+  for the SBOM. Both redirect to GitHub's download storage, which was
+  reachable too.
+
+Two traps:
+
+- **`mvn clean install` first is not optional.** `shares-server/build-image.sh`
+  builds that one module on its own, so it compiles against `cdoc2-css-db`
+  from `~/.m2`, not from source. Without the install it picked up a stale
+  `cdoc2-css-db` 0.1.3 jar, built before the source had that class, and failed with `cannot find symbol: SessionNonceRepository`.
+  `install` with `-o` also fails, because it needs
+  `org.honton.chas:exists-maven-plugin`, which `verify` never downloads.
+- **`build-images.sh` exits 0 even when the server image fails.** It has no
+  `set -e`, so the Liquibase image still builds and the run looks
+  successful. Check for `Successfully built image 'ghcr.io/open-eid/cdoc2-shares-server:...'`
+  in the output, not the exit code.
+
+Side effects. `install` writes the branch's artifacts into `~/.m2/repository`,
+which is host-mounted, so they replace any copy of the same version there,
+including a released one. The images stay in the sandbox's engine
+(`publish=false`). With the builder they take about 2.7 GB of the 20 GB
+overlay; `docker rmi` them when done.
+
+Not yet checked: running the images (the README's `docker compose up`
+quickstart).
 
 ## Base image
 

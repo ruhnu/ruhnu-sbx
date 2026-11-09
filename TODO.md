@@ -28,6 +28,61 @@ GitHub Packages org, or the versions the poms want are not there. Check which,
 and if they genuinely have to be built locally, say so in the README rather
 than leaving it as a closing note.
 
+## Decide whether to keep the threatmodel plugin
+
+[josemlopez/claude-threatmodel](https://github.com/josemlopez/claude-threatmodel)
+was installed by hand on 2026-11-07, at user scope, for evaluation. Reviewed
+at commit `503f02a`: three prompt-only skills (`/threatmodel:quick`, `full`,
+`status`) and one hook that, after every approved plan, tells Claude to run
+`/threatmodel:quick` in a subagent. Nothing in it runs code by itself.
+
+It lives in `~/.claude/plugins` on the sandbox overlay, so `sbx rm` removes
+it. `/.threatmodel/`, where `full` writes its results, is excluded by hand in
+the four forks' `.git/info/exclude`; the bootstrap does not do that yet.
+
+Evaluate on real work, then decide:
+
+- Do `quick` and `full` find anything a plain review would not, on cdoc2
+  code? The quick scan is a handful of greps aimed at web apps.
+- Is the per-plan subagent run worth its time and tokens, or would running
+  the skills on demand be enough?
+
+If it stays:
+
+- Install it from the kit or the bootstrap rather than by hand, pinned to a
+  reviewed commit, or forked into the ruhnu org: the marketplace tracks the
+  author's `main`, so an update could change the hook unreviewed.
+- Add `/.threatmodel/` to the exclude list in `bootstrap-ruhnu.sh`.
+- Never run its `hooks/install-hooks.sh`: it replaces every hook in
+  `~/.claude/settings.json` and installs scripts that start a nested `claude`.
+
+If it goes: `claude plugin uninstall threatmodel@josemlopez`, remove the
+`josemlopez` marketplace, and drop `/.threatmodel/` from the forks' exclude
+files.
+
+## Try mounting CLAUDE.md read-only instead of copying it
+
+`create-sandbox.sh` copies `~/.claude/CLAUDE.md` in with `scp`. sbx v0.51.0
+can mount a single file, but only read-only:
+
+```bash
+~/.claude/CLAUDE.md:/home/agent/.claude/CLAUDE.md:ro
+```
+
+That would keep it in sync with the host, stop the agent changing it, and
+survive `sbx rm` without being copied in again. On a throwaway sandbox, check:
+
+- `CLAUDE.md` and the mounted `projects/` both appear in `~/.claude`, and
+  neither mount hides the other or `.credentials.json`.
+- Writing to it fails inside the sandbox.
+- An edit on the host shows up inside without a restart. With a file mount
+  this may not happen if the editor replaces the file rather than writing in
+  place.
+- Claude Code actually loads it.
+
+If all of that holds, swap the `scp` step in `create-sandbox.sh` for the
+mount and update the README's *Your CLAUDE.md* section.
+
 ## Smaller items
 
 - Drop the apt layer from the kit if the base's JDK 17/21/25 and Maven 3.9.12

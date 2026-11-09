@@ -341,8 +341,11 @@ sbx create --name ruhnu ./kit/ ~/a ~/b              # several
 
 With no target the host path is mounted at **the same absolute path** inside
 the sandbox, which keeps paths in logs, stack traces and workspace files valid
-on both sides. Combining a custom target with `:ro` is not documented — verify
-it took effect rather than assuming.
+on both sides. The full form is `PATH[:TARGET][:ro]`, so a custom target can be
+read-only too (`~/data:/home/agent/data:ro`). A `:ro` path may also be a single
+file, which keeps that one path read-only inside a workspace the sandbox can
+otherwise write. See *Mounts are fixed at sandbox creation* in
+`docs/findings.md`.
 
 Four things to know:
 
@@ -353,10 +356,12 @@ mounts before building anything expensive.
 
 **Mounted directories are virtiofs, not the VM's ext4.** A microVM has its own
 kernel and cannot reach the host's filesystem directly, so everything crosses a
-passthrough layer. For workloads doing many small reads — Maven resolving a
-dependency tree, a Gradle daemon watching files — this is markedly slower than
-VM-local storage. That is why the repos and `~/.m2` live inside the sandbox
-here and only genuinely host-resident data should be mounted.
+passthrough layer. Per-file operations are 3-5x slower than on VM-local
+storage, but for this project that is milliseconds. A warm Maven build costs
+about 5% with the repos mounted, and nothing measurable with `~/.m2` mounted.
+That is why the repos, `~/.m2/repository` and the session transcripts are all
+host mounts here. A *cold* Maven resolve has not been measured. See
+`docs/findings.md`.
 
 **Prefer `:ro`.** A read-write mount is the one place an agent in auto mode can
 destroy something with no git history to recover from. If Claude only needs to
@@ -378,7 +383,10 @@ ssh ruhnu.sbx 'mkdir -p ~/.claude'
 scp ~/.claude/CLAUDE.md ruhnu.sbx:/home/agent/.claude/CLAUDE.md
 ```
 
-Copied rather than mounted: sbx mounts directories, not single files.
+Copied rather than mounted. sbx can mount a single file, but only read-only
+(`~/.claude/CLAUDE.md:/home/agent/.claude/CLAUDE.md:ro`). That would keep it
+in sync with the host and stop the agent changing it, but it has not been
+tried here, so the copy stays.
 
 **The host's `~/.claude` is deliberately not mounted.** It holds
 `.credentials.json` (a live OAuth token), `.claude.json` (every project you
