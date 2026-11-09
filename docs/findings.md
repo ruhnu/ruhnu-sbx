@@ -182,6 +182,26 @@ sbx policy allow network openspec.dev
 DNS resolves normally (`getent`, `nslookup`) despite UDP being blocked by
 default — the resolver is on the host side of the proxy.
 
+### Unlisted hosts wait for approval (2026-11-09)
+
+A host the policy neither allows nor denies is held for approval rather than
+refused outright. The proxy answers `403` with a plain-text body naming the
+host and the command to run on the host:
+
+```
+Approval required for www.oracle.com:443.
+
+Review and respond with:
+  sbx policy approval ls
+```
+
+Claude Code's `WebFetch` reports only "HTTP 403 Forbidden" and drops the body,
+so use `curl` to tell a pending approval from a site's own 403. Once approved
+on the host, the next request goes through with no sandbox restart. Seen held
+this way: `www.oracle.com`, `docs.oracle.com`, `docs.spring.io`, `paketo.io`.
+Reached without approval: `raw.githubusercontent.com` and
+`release-assets.githubusercontent.com` (GitHub release downloads).
+
 ## Credentials: `gh` works without a token in the VM
 
 The stock image **already sets `GH_TOKEN` to a sentinel**. With no secret
@@ -255,6 +275,23 @@ egress allowlist or downloads fail *after* a successful authentication.
 
 The username in Basic auth is ignored when the token is valid — a literal `x`
 works — so no per-user build configuration is needed.
+
+### What the injected GitHub token cannot do (2026-11-09)
+
+The token behind `$GH_TOKEN` is a fine-grained PAT with **Contents** read/write
+on the ruhnu repos and nothing else. Measured against `ruhnu/cdoc2-shares-server`
+(public) and `ruhnu/ruhnu-ops` (private):
+
+| Action | Result |
+|---|---|
+| `git push` of a commit touching `.github/workflows/*` | rejected: `refusing to allow a Personal Access Token to create or update workflow ... without workflow scope` |
+| `gh issue list` on a private repo | `Resource not accessible by personal access token` |
+| `gh api .../actions/permissions`, `.../actions/variables` | 403 |
+| `gh issue list`, `gh run list`, `gh run view --log` on a public repo | work |
+
+So workflow changes are committed in the sandbox and pushed from the host, or
+the token gets **Workflows: read and write**. Issues, PRs and repo settings
+likewise need the host's `gh` or added permissions.
 
 ## Defaults worth overriding
 
@@ -439,6 +476,20 @@ Two traps:
   `set -e`, so the Liquibase image still builds and the run looks
   successful. Check for `Successfully built image 'ghcr.io/open-eid/cdoc2-shares-server:...'`
   in the output, not the exit code.
+- **Do not pass the pom's `http.proxy` / `https.proxy` properties.** The
+  shares-server pom forwards them to the builder as `HTTP_PROXY` /
+  `HTTPS_PROXY`. Pointed at `$HTTPS_PROXY` (`gateway.docker.internal:3128`),
+  the buildpack containers go through the intercepting proxy, whose CA they
+  don't trust, and the JRE download fails with only `unable to get dependency
+  BellSoft Liberica JRE` (lifecycle status 51). Without them, containers reach
+  GitHub directly with its real certificate (measured 2026-11-09 with `curl` in
+  the builder image: `self-signed certificate in certificate chain` with
+  `HTTPS_PROXY` set, `200` and a Sectigo-issued `CN=github.com` without). If a
+  proxy is ever required, the Paketo `ca-certificates` binding fixes the trust:
+  a directory with a `type` file containing `ca-certificates` and the proxy CA
+  (`echo "$PROXY_CA_CERT_B64" | base64 -d`), mounted through the plugin's
+  `<bindings>` at `/platform/bindings/ca-certificates`. `bindings` has no
+  command-line property, so that means a pom change.
 
 Side effects. `install` writes the branch's artifacts into `~/.m2/repository`,
 which is host-mounted, so they replace any copy of the same version there,
