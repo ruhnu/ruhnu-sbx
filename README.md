@@ -527,7 +527,16 @@ the sandbox discards these locally built artifacts along with everything else.
 
 Host-side, like `create-sandbox.sh`. It starts the sandbox if it is stopped,
 then opens the multi-root workspace — all the repos plus the OpenSpec store in
-one window. By hand:
+one window.
+
+Safe to re-run. If the workspace is already open, VS Code reuses that window
+and opens no second one, despite `--new-window`. The window may not come to
+the front, so it can look as if nothing happened. If VS Code is closed, a new
+window opens and restores the tabs you last had open. The workspace file is
+at the same path every time, so VS Code finds its saved state. Both verified
+2026-11-09.
+
+By hand:
 
 ```bash
 code --file-uri "vscode-remote://ssh-remote+ruhnu.sbx$DATA/ruhnu.code-workspace"
