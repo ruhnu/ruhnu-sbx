@@ -195,6 +195,18 @@ Review and respond with:
   sbx policy approval ls
 ```
 
+The pending approval names a port (`host:443`). A permanent rule can be just as
+narrow: `sbx policy allow network` takes an optional port suffix and can be
+scoped to one sandbox instead of all of them (from `--help`, sbx 2026-11-10):
+
+```bash
+sbx policy allow network --sandbox <name> share1-ruhnu.duckdns.org:443
+```
+
+It also accepts wildcards (`*.example.com`, `**.example.com`), IP addresses and
+CIDR prefixes, `--protocol udp`, and HTTP-level rules with `--method`, `--path`
+and `--query`.
+
 Claude Code's `WebFetch` reports only "HTTP 403 Forbidden" and drops the body,
 so use `curl` to tell a pending approval from a site's own 403. Once approved
 on the host, the next request goes through with no sandbox restart. Seen held
